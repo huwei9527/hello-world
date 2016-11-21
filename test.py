@@ -1,10 +1,4 @@
-for n in range(2, 10):
-    for x in range(2, n):
-        if n % x == 0:
-            print n, 'equals', x, '*', n//x
-            break
-    else:
-        print n, 'is a prime number'
+#!/usr/bin/python
 
 
 def fib(n):
@@ -54,10 +48,6 @@ def scope_test():
     print "After global assignment:", spam
 
 
-scope_test()
-print "In global scope:", spam
-
-
 class MyClass:
     """A simple example class"""
 
@@ -67,13 +57,15 @@ class MyClass:
         self.i = num
         return "Hello world"
 
+def average(values):
+    """Computes the arithmetic mean of a list of numbers.
+    
+    >>> print average({20, 30, 70})
+    40.0
+    """
+    
+    return sum(values) / len(values)
 
-c = MyClass()
-d = MyClass()
-c.f(100)
-print c.i
-print MyClass.i
-c.attr1 = 10
-c.attr2 = 20
-print c.attr1
-print c.attr2
+import numpy
+a = numpy.eye(4)
+print a.shape
