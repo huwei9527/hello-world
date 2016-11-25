@@ -1,71 +1,41 @@
 #!/usr/bin/python
 
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+import timeit
 
-def fib(n):
-    """return a list, containing Fibonacci array from 1 to n"""
-    result = []
-    a, b = 0, 1
-    while a < n:
-        result.append(a)
-        a, b = b, a+b
-    return result
+import best_arm_identification as bai
+#  def time_ae():
+#  print bai.data
+bai.action_elimination(bai.data.means.size, bai.data.pull)
+print bai.data
+bai.data.save()
+#  bai.data.load()
+#  bai.data.hist(3)
+    #  return
+#
+#  ae_timeit = timeit.Timer('time_ae()', 'from __main__ import time_ae')
+#  rt = ae_timeit.timeit(1)
+#  print 'Running time: ', rt
 
-
-def ask_ok(prompt, retries=4, complaint='Yes or no, please!'):
-    while True:
-        ok = input(prompt)
-        if ok in ('y', 'ye', 'yes'):
-            return True
-        if ok in ('n', 'no', 'nop', 'nope'):
-            return False
-        retries = retries - 1
-        if retries < 0:
-            raise IOError('resusenik user')
-        print complaint
-
-
-def make_incrementor(n):
-    return lambda x: x + n
-
-
-a = [2, 1, 3, 4]
-l = [5, 6]
-b = [[3*x, x**2] for x in a]
-m = [
-        [1, 2, 3],
-        [4, 5, 6],
-        [7, 8, 9]
-    ]
-
-
-def scope_test():
-    def do_global():
-        global spam
-        spam = "global spam"
-
-    spam = "test spam"
-    do_global()
-    print "After global assignment:", spam
-
-
-class MyClass:
-    """A simple example class"""
-
-    i = 12345
-
-    def f(self, num):
-        self.i = num
-        return "Hello world"
-
-def average(values):
-    """Computes the arithmetic mean of a list of numbers.
-    
-    >>> print average({20, 30, 70})
-    40.0
-    """
-    
-    return sum(values) / len(values)
-
-import numpy
-a = numpy.eye(4)
-print a.shape
+#  plt.figure(figsize=(10, 6), dpi=80)
+#  plt.subplot(1, 1, 1)
+#  X = np.linspace(-np.pi, np.pi, 256, endpoint=True)
+#  C, S = np.cos(X), np.sin(X)
+#  plt.plot(X, C, color="blue", linewidth=2.5, linestyle="-")
+#  plt.plot(X, S, color="red", linewidth=2.5, linestyle="-")
+#  plt.xlim(X.min()*1.1, X.max()*1.1)
+#  plt.xticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi],
+        #  [r'$-\pi$', r'$-\pi/2$', r'$0$', r'$+\pi/2$', r'$+\pi$'])
+#
+#  plt.ylim(C.min()*1.1, C.max()*1.1)
+#  plt.yticks([-1, 0, 1],
+        #  [r'$-1$', r'$0$', r'$+1$'])
+#  ax = plt.gca()
+#  ax.spines['right'].set_color('none')
+#  ax.spines['top'].set_color('none')
+#  ax.xaxis.set_ticks_position('bottom')
+#  ax.spines['bottom'].set_position(('data', 0))
+#
+#  plt.show()
