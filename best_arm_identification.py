@@ -26,6 +26,7 @@ _means = np.arange(0, 1.1, 0.2, dtype = _float_type)
 # Default variance of the normal random variables
 _vars = np.ones(_means.size, dtype = _float_type) * 0.25
 _num_pulls = 70
+_v = 0.1
 
 
 def _is_zero(float_num):
@@ -91,7 +92,7 @@ class NormalData(object):
         """
         assert arm_id < self.means.size
         if not (self.data_max < self.data.size):
-            self.data.resize(2 * self.data.size)
+            self.data.resize(self.data.size + self._mem_step)
             self.data_id.resize(self.data.size)
         arm_id = int(arm_id)
         # non-central normal distribution: var * n + mu
@@ -155,7 +156,7 @@ class AlgCache:
         return "measns_exp: %s\nconf: %s\nt: %s\n(h, l): (%d, %d)" % (self.means_exp,
                 self.conf, self.t, self.h, self.l)
 
-    def _find_max_experience_mean_id(self):
+    def _find_max_expirical_mean_id(self):
         return self.means_exp.argmax()
 
     def _find_max_confidence_id(self):
@@ -181,7 +182,7 @@ class AlgCache:
             return
         self.conf[arm_id] = (self.means_exp[arm_id] +
                 self.conf_hook(self.t[arm_id]))
-        self.h = self._find_max_experience_mean_id()
+        self.h = self._find_max_expirical_mean_id()
         self.l = self._find_max_confidence_id()
         return
 
@@ -214,6 +215,14 @@ def _ae_delete_certian_small_arms(data_cache, omiga, k):
                 ret_omiga[ret_index] = omiga[i]
                 ret_index += 1
         return ret_omiga
+
+
+def _pull_arm(data_cache, arm_id, r=1):
+    """Pull one arm r times"""
+    while r > 0:
+        data_cache.pull(arm_id)
+        r -= 1
+    return
 
 
 def _pull_arms(data_cache, omiga, r=1):
@@ -259,6 +268,11 @@ def action_elimination(num_arms, pull=None, delta=_delta, epsilon=_epsilon):
         _pull_arms(dcache, omiga)
     print dcache
     print 'omiga: ', omiga
+    return
+
+
+def successive_elimination(num_arms, pull=None, confidence):
+    """Successive elimination algorithm"""
     return
 
 
