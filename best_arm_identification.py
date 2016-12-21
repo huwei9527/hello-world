@@ -26,7 +26,8 @@ _means = np.arange(0, 1.1, 0.2, dtype = _float_type)
 # Default variance of the normal random variables
 _vars = np.ones(_means.size, dtype = _float_type) * 0.25
 _num_pulls = 70
-_v = 0.1
+# (1 - _nu) is the default confidence of the algorithm
+_nu = 0.1
 
 
 def _is_zero(float_num):
@@ -144,6 +145,7 @@ class AlgCache:
         """Init function"""
         self.means_exp = np.zeros(num_arms, _float_type)
         self.size = self.means_exp.size
+        self.max_mean_id = 0
         self.conf = np.zeros(self.size, _float_type)
         self.t = np.zeros(self.size, np.int)
         self.h = 0
@@ -272,8 +274,14 @@ def action_elimination(num_arms, pull=None, delta=_delta, epsilon=_epsilon):
     return
 
 
-def successive_elimination(num_arms, pull=None, confidence):
-    """Successive elimination algorithm"""
+def successive_elimination(num_arms, pull=None, nu=_nu):
+    """Successive elimination algorithm
+    
+    Args:
+        num_arms: Number of arms
+        pull: Function hook for generating datas(pull(arm_id))
+        nu: The confidence of the algorithm
+    """
     dcache = AlgCache(num_arms, pull)
     omiga = np.arange(0, dcache.size, 1, np.int)
     t = 1
