@@ -7,7 +7,7 @@ import timeit
 
 import best_arm_identification as bai
 #  def time_ae():
-print bai.data
+#  print bai.data
 bai.action_elimination(bai.data.means.size, bai.data.pull)
 #  print bai.data
 #  bai.data.save()

@@ -143,8 +143,9 @@ class AlgCache:
     def __init__(self, num_arms, pull_hook=None, conf_hook=None):
         """Init function"""
         self.means_exp = np.zeros(num_arms, _float_type)
-        self.conf = np.zeros(self.means_exp.size, _float_type)
-        self.t = np.zeros(self.means_exp.size, np.int)
+        self.size = self.means_exp.size
+        self.conf = np.zeros(self.size, _float_type)
+        self.t = np.zeros(self.size, np.int)
         self.h = 0
         self.l = 1
         self.pull_hook = pull_hook
@@ -273,6 +274,13 @@ def action_elimination(num_arms, pull=None, delta=_delta, epsilon=_epsilon):
 
 def successive_elimination(num_arms, pull=None, confidence):
     """Successive elimination algorithm"""
+    dcache = AlgCache(num_arms, pull)
+    omiga = np.arange(0, dcache.size, 1, np.int)
+    t = 1
+    while omiga.size > 1:
+        t += 1
+        _pull_arms(dcache, omiga)
+        pass
     return
 
 
