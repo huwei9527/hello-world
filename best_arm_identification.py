@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import sys
 
 
 def main():
@@ -21,10 +20,10 @@ _delta = 0.1
 # Default $\beta$
 _beta = 1
 # Default means of the normal random variables
-_means = np.arange(0, 1.1, 0.2, dtype = _float_type)
+_means = np.arange(0, 1.1, 0.2, dtype=_float_type)
 #  _means = np.random.permutation(_means)
 # Default variance of the normal random variables
-_vars = np.ones(_means.size, dtype = _float_type) * 0.25
+_vars = np.ones(_means.size, dtype=_float_type) * 0.25
 _num_pulls = 70
 # (1 - _nu) is the default confidence of the algorithm
 _nu = 0.1
@@ -55,7 +54,7 @@ def _compute_h_1(means):
 
 def _compute_u(t, delta=_delta, epsilon=_epsilon):
     """Compute the parameter U."""
-    ep_plus_one = epsilon + 1;
+    ep_plus_one = epsilon + 1
     log_v = np.log10(ep_plus_one * t + 2)
     loglog_v = np.log10(log_v / delta)
     return (1 + np.sqrt(epsilon)) * np.sqrt(ep_plus_one * loglog_v / (2 * t))
@@ -75,20 +74,16 @@ class NormalData(object):
         return
 
     def __str__(self):
-        return ((
-            "means: %s\n"
-            "variances: %s\n"
-            "H1: %f\n"
-            "(data_max/max):(%d/%d)\n") % (
-                self.means, 
-                self.vars, 
-                _compute_h_1(self.means), 
-                self.data_max, self.data.size))
-
+        return (("means: %s\n"
+                 "variances: %s\n"
+                 "H1: %f\n"
+                 "(data_max/max):(%d/%d)\n") %
+                (self.means, self.vars, _compute_h_1(self.means),
+                 self.data_max, self.data.size))
 
     def pull(self, arm_id):
         """Pull the arm_id-th arm without checking the legality of the index.
-        
+
         You need to make sure that arm_id is in the range.
         """
         assert arm_id < self.means.size
@@ -98,15 +93,19 @@ class NormalData(object):
         arm_id = int(arm_id)
         # non-central normal distribution: var * n + mu
         self.data[self.data_max] = np.random.normal(self.means[arm_id],
-                self.vars[arm_id])
+                                                    self.vars[arm_id])
         # maintain the index which arm the value belongs to
         self.data_id[self.data_max] = arm_id
-        self.data_max+=1
+        self.data_max += 1
         return self.data[arm_id]
 
     def save(self, fname='NormalData'):
-        np.savez(fname, means=self.means, vars=self.vars,
-                data=self.data[:self.data_max], id=self.data_id[:self.data_max])
+        np.savez(
+            fname,
+            means=self.means,
+            vars=self.vars,
+            data=self.data[:self.data_max],
+            id=self.data_id[:self.data_max])
         return
 
     def load(self, fname='NormalData.npz'):
@@ -131,7 +130,7 @@ class NormalData(object):
                 b[iarm] = self.data[idata]
                 iarm += 1
             idata += 1
-        plt.hist(b, bins=np.ceil(a[arm_id]/10.0))
+        plt.hist(b, bins=np.ceil(a[arm_id] / 10.0))
         plt.show()
 
 
@@ -156,8 +155,8 @@ class AlgCache:
 
     def __str__(self):
         """format printing"""
-        return "measns_exp: %s\nconf: %s\nt: %s\n(h, l): (%d, %d)" % (self.means_exp,
-                self.conf, self.t, self.h, self.l)
+        return "measns_exp: %s\nconf: %s\nt: %s\n(h, l): (%d, %d)" % (
+            self.means_exp, self.conf, self.t, self.h, self.l)
 
     def _find_max_expirical_mean_id(self):
         return self.means_exp.argmax()
@@ -171,7 +170,7 @@ class AlgCache:
 
     def pull(self, arm_id):
         """Pull the arm_id-th arm and maintain the parameters."""
-        if self.pull_hook == None:
+        if self.pull_hook is None:
             return
         assert arm_id >= 0 and arm_id < self.means_exp.size
         out_val = self.pull_hook(arm_id)
@@ -181,10 +180,10 @@ class AlgCache:
         self.t[arm_id] += 1
         # compute h = arg max {\mu}
         # compute l = arg max_{i\h} {\mu + c}
-        if self.conf_hook == None:
+        if self.conf_hook is None:
             return
-        self.conf[arm_id] = (self.means_exp[arm_id] +
-                self.conf_hook(self.t[arm_id]))
+        self.conf[arm_id] = (
+            self.means_exp[arm_id] + self.conf_hook(self.t[arm_id]))
         self.h = self._find_max_expirical_mean_id()
         self.l = self._find_max_confidence_id()
         return
@@ -240,10 +239,10 @@ def _pull_arms(data_cache, omiga, r=1):
 
 class AEConfidence:
     """Compute the confidence of the action elimination"""
+
     def __init__(self, delta=_delta, epsilon=_epsilon):
         self.delta = _delta
         self.epsilon = _epsilon
-        return
 
     def compute(self, t):
         return (2 * _compute_u(t, self.delta, self.epsilon))
@@ -251,14 +250,14 @@ class AEConfidence:
     def compute_positive_rate(self):
         ep_plus_one = 1 + self.epsilon
         log_v = np.log10(ep_plus_one)
-        tmp = np.power(1/log_v, ep_plus_one)
+        tmp = np.power(1 / log_v, ep_plus_one)
         tmp = 1 - ((2 + self.epsilon) * 2 * tmp * self.delta / self.epsilon)
         return tmp
-        
+
 
 def action_elimination(num_arms, pull=None, delta=_delta, epsilon=_epsilon):
     """Nonadaptive LS algorithm"""
-    conf_hook = AEConfidence(delta/num_arms, epsilon)
+    conf_hook = AEConfidence(delta / num_arms, epsilon)
     print conf_hook.compute_positive_rate()
     dcache = AlgCache(num_arms, pull, conf_hook.compute)
     k = 1
@@ -276,7 +275,7 @@ def action_elimination(num_arms, pull=None, delta=_delta, epsilon=_epsilon):
 
 def successive_elimination(num_arms, pull=None, nu=_nu):
     """Successive elimination algorithm
-    
+
     Args:
         num_arms: Number of arms
         pull: Function hook for generating datas(pull(arm_id))
@@ -294,7 +293,7 @@ def successive_elimination(num_arms, pull=None, nu=_nu):
 
 def ucb(means=_means, vars=_vars, delta=_delta, epsilon=_epsilon):
     """Upper confidence bound algorithm"""
-    data = NormalData(means, vars)
+# data = NormalData(means, vars)
     pass
 
 
