@@ -1,14 +1,17 @@
 #!/usr/bin/python
 
-import numpy as np
-import matplotlib.pyplot as plt
-import sys
-import timeit
+# import numpy as np
+# import matplotlib.pyplot as plt
+
+# import sys
+# import timeit
 
 import best_arm_identification as bai
+bai.test()
 #  def time_ae():
 #  print bai.data
-bai.action_elimination(bai.data.means.size, bai.data.pull)
+# bai.action_elimination(bai.data.means.size, bai.data.pull)
+
 #  print bai.data
 #  bai.data.save()
 #  bai.data.load()
@@ -20,7 +23,7 @@ bai.action_elimination(bai.data.means.size, bai.data.pull)
 #  rt = ae_timeit.timeit(1)
 #  print 'Running time: ', rt
 
-#  plt.figure(figsize=(10, 6), dpi=80)
+# plt.figure(figsize=(10, 6), dpi=80)
 #  plt.subplot(1, 1, 1)
 #  X = np.linspace(-np.pi, np.pi, 256, endpoint=True)
 #  C, S = np.cos(X), np.sin(X)

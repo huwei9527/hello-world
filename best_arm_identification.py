@@ -23,7 +23,7 @@ _beta = 1
 _means = np.arange(0, 1.1, 0.2, dtype=_float_type)
 #  _means = np.random.permutation(_means)
 # Default variance of the normal random variables
-_vars = np.ones(_means.size, dtype=_float_type) * 0.25
+_variances = np.ones(_means.size, dtype=_float_type) * 0.25
 _num_pulls = 70
 # (1 - _nu) is the default confidence of the algorithm
 _nu = 0.1
@@ -37,6 +37,14 @@ def _is_zero(float_num):
 def _is_equal(floata, floatb):
     """Decide whether two floats are equal accroding to the precision"""
     return _is_zero(floata, floatb)
+
+
+def _compute_successive_elimination_threshold(t, n, c=4, delta=0.1):
+    """Compute threshold of the successive elimination.
+    $\alpha=\ln(c*n*t^2/\delta)/t$
+    """
+    ret = np.sqrt(np.log(c * t * t * n) / t)
+    return ret
 
 
 def _compute_h_1(means):
@@ -63,10 +71,11 @@ def _compute_u(t, delta=_delta, epsilon=_epsilon):
 class NormalData(object):
     """Normal data"""
 
-    def __init__(self, means, vars, num_pulls=_num_pulls):
+    def __init__(self, means, variances, num_pulls=_num_pulls):
         """Init function"""
         self.means = means.copy()
-        self.vars = vars.copy()
+        self.n = self.means.size
+        self.variances = variances.copy()
         self._mem_step = int(num_pulls * _compute_h_1(self.means))
         self.data = np.zeros(self._mem_step, dtype=_float_type)
         self.data_id = np.zeros(self.data.shape, dtype=np.int)
@@ -78,7 +87,9 @@ class NormalData(object):
                  "variances: %s\n"
                  "H1: %f\n"
                  "(data_max/max):(%d/%d)\n") %
-                (self.means, self.vars, _compute_h_1(self.means),
+                (self.means,
+                 self.variances,
+                 _compute_h_1(self.means),
                  self.data_max, self.data.size))
 
     def pull(self, arm_id):
@@ -86,14 +97,14 @@ class NormalData(object):
 
         You need to make sure that arm_id is in the range.
         """
-        assert arm_id < self.means.size
+        assert arm_id < self.n
         if not (self.data_max < self.data.size):
             self.data.resize(self.data.size + self._mem_step)
             self.data_id.resize(self.data.size)
         arm_id = int(arm_id)
         # non-central normal distribution: var * n + mu
         self.data[self.data_max] = np.random.normal(self.means[arm_id],
-                                                    self.vars[arm_id])
+                                                    self.variances[arm_id])
         # maintain the index which arm the value belongs to
         self.data_id[self.data_max] = arm_id
         self.data_max += 1
@@ -104,8 +115,8 @@ class NormalData(object):
             fname,
             means=self.means,
             vars=self.vars,
-            data=self.data[:self.data_max],
-            id=self.data_id[:self.data_max])
+            data=self.data[self.data_max],
+            id=self.data_id[self.data_max])
         return
 
     def load(self, fname='NormalData.npz'):
@@ -134,7 +145,7 @@ class NormalData(object):
         plt.show()
 
 
-data = NormalData(_means, _vars)
+data = NormalData(_means, _variances)
 
 
 class AlgCache:
@@ -142,13 +153,16 @@ class AlgCache:
 
     def __init__(self, num_arms, pull_hook=None, conf_hook=None):
         """Init function"""
-        self.means_exp = np.zeros(num_arms, _float_type)
-        self.size = self.means_exp.size
+        self.n = num_arms
+        self.means = np.zeros(self.n, _float_type)
+        self.sums = np.zeros(self.n, _float_type)
+
         self.max_mean_id = 0
-        self.conf = np.zeros(self.size, _float_type)
-        self.t = np.zeros(self.size, np.int)
+        self.conf = np.zeros(self.n, _float_type)
+        self.t = np.zeros(self.n, np.int)
         self.h = 0
         self.l = 1
+        assert not (pull_hook is None)
         self.pull_hook = pull_hook
         self.conf_hook = conf_hook
         return
@@ -168,11 +182,19 @@ class AlgCache:
         self.conf[self.h] = old_conf
         return ret_max_conf_id
 
+    def successive_elimination_pull(self, omiga):
+        max_id = 0
+        for arm_id in omiga:
+            self.sums[arm_id] += self.pull_hook(arm_id)
+            self.t[arm_id] += 1
+            self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+            if self.means[arm_id] > self.means[max_id]:
+                max_id = arm_id
+        return
+
     def pull(self, arm_id):
         """Pull the arm_id-th arm and maintain the parameters."""
-        if self.pull_hook is None:
-            return
-        assert arm_id >= 0 and arm_id < self.means_exp.size
+        assert arm_id >= 0 and arm_id < self.n
         out_val = self.pull_hook(arm_id)
         frac = self.t[arm_id] / (self.t[arm_id] + 1.0)
         old_mean = self.means_exp[arm_id]
@@ -286,17 +308,24 @@ def successive_elimination(num_arms, pull=None, nu=_nu):
     t = 1
     while omiga.size > 1:
         t += 1
-        _pull_arms(dcache, omiga)
+        dcache.successive_elimination_pull(omiga)
         pass
     return
 
 
-def ucb(means=_means, vars=_vars, delta=_delta, epsilon=_epsilon):
+def ucb(means=_means, vriances=_variances, delta=_delta, epsilon=_epsilon):
     """Upper confidence bound algorithm"""
 # data = NormalData(means, vars)
     pass
 
 
-def lucb(means=_means, vars=_vars, delta=_delta, epsilon=_epsilon):
+def lucb(means=_means, variances=_variances, delta=_delta, epsilon=_epsilon):
     """LIL Upper confidence bound algorithm"""
     pass
+
+
+def test():
+    nd = NormalData(_means, _variances)
+    for i in range(0, 2000):
+        nd.pull(1)
+    return
