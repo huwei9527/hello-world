@@ -39,7 +39,7 @@ def _is_equal(floata, floatb):
     return _is_zero(floata, floatb)
 
 
-def _compute_successive_elimination_threshold(t, n, c=4, delta=0.1):
+def _compute_successive_elimination_threshold(t, n, c=4, delta=_nu):
     """Compute threshold of the successive elimination.
     $\alpha=\ln(c*n*t^2/\delta)/t$
     """
@@ -108,15 +108,15 @@ class NormalData(object):
         # maintain the index which arm the value belongs to
         self.data_id[self.data_max] = arm_id
         self.data_max += 1
-        return self.data[arm_id]
+        return self.data[self.data_max - 1]
 
     def save(self, fname='NormalData'):
         np.savez(
             fname,
             means=self.means,
             vars=self.vars,
-            data=self.data[self.data_max],
-            id=self.data_id[self.data_max])
+            data=self.data[:self.data_max],
+            id=self.data_id[:self.data_max])
         return
 
     def load(self, fname='NormalData.npz'):
@@ -158,6 +158,7 @@ class AlgCache:
         self.sums = np.zeros(self.n, _float_type)
 
         self.max_mean_id = 0
+        self.ref_id = 0
         self.conf = np.zeros(self.n, _float_type)
         self.t = np.zeros(self.n, np.int)
         self.h = 0
@@ -182,15 +183,37 @@ class AlgCache:
         self.conf[self.h] = old_conf
         return ret_max_conf_id
 
-    def successive_elimination_pull(self, omiga):
-        max_id = 0
+    def _successive_elimination_delete_arms(self, t, omiga, delta):
+        max_mean = self.means[self.ref_id]
+        threshold = (
+            2 * _compute_successive_elimination_threshold(t, self.n, 4, delta))
+        omiga_flag = np.ones(omiga.size, np.bool)
+        i = 0
+        del_flag = False
+        while i < omiga.size:
+            if max_mean - self.means[omiga[i]] > threshold:
+                omiga_flag[i] = False
+                del_flag = True
+            i += 1
+        if del_flag:
+            return omiga[omiga_flag]
+        else:
+            return omiga
+
+    def successive_elimination_pull(self, t, omiga, delta):
         for arm_id in omiga:
             self.sums[arm_id] += self.pull_hook(arm_id)
             self.t[arm_id] += 1
             self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
-            if self.means[arm_id] > self.means[max_id]:
-                max_id = arm_id
-        return
+            if self.means[arm_id] > self.means[self.ref_id]:
+                self.ref_id = arm_id
+        return self._successive_elimination_delete_arms(t, omiga)
+
+    def exponential_gap_elimination_pull(self, epsilon, delta, omiga):
+        t = (2.0 / epsilon / epsilon) * np.log(2.0 / delta)
+        self._pull_arms(t, omiga)
+        self.ref_id = self._median_elimination(omiga, epsilon / 0.2, delta)
+        return self._exponential_gap_elimination_delete_arms(omiga, epsilon)
 
     def pull(self, arm_id):
         """Pull the arm_id-th arm and maintain the parameters."""
@@ -304,12 +327,26 @@ def successive_elimination(num_arms, pull=None, nu=_nu):
         nu: The confidence of the algorithm
     """
     dcache = AlgCache(num_arms, pull)
-    omiga = np.arange(0, dcache.size, 1, np.int)
+    omiga = np.arange(0, dcache.n, 1, np.int)
     t = 1
     while omiga.size > 1:
+        omiga = dcache.successive_elimination_pull(t, omiga, nu)
         t += 1
-        dcache.successive_elimination_pull(omiga)
-        pass
+    print omiga
+    return
+
+
+def exponential_gap_elimination(num_arms, pull=None, nu=_nu):
+    """Exponeential gap elimination algorithm."""
+    dcache = AlgCache(num_arms, pull)
+    omiga = np.arange(0, dcache.n, 1, np.int)
+    r = 1
+    epsilon = 1/8.0
+    while omiga.size > 1:
+        delta = nu / (50 * r * r * r)
+        omiga = dcache.exponential_gap_elimination_pull(epsilon, delta, omiga)
+        epsilon /= 2.0
+        r += 1
     return
 
 
@@ -325,7 +362,9 @@ def lucb(means=_means, variances=_variances, delta=_delta, epsilon=_epsilon):
 
 
 def test():
+    print 'aa'
     nd = NormalData(_means, _variances)
-    for i in range(0, 2000):
-        nd.pull(1)
+    successive_elimination(nd.n, nd.pull)
+    # print nd.data[:nd.data_max]
+    print nd.data_max
     return

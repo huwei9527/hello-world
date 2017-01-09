@@ -1,17 +1,21 @@
 #!/usr/bin/python
 
-# import numpy as np
+import numpy as np
 # import matplotlib.pyplot as plt
 
 # import sys
 # import timeit
 
 import best_arm_identification as bai
-bai.test()
-#  def time_ae():
-#  print bai.data
-# bai.action_elimination(bai.data.means.size, bai.data.pull)
 
+bai.test()
+a = np.arange(0, 10, 1, np.int)
+b = np.ones(10, np.bool)
+b[5] = True
+b[7] = True
+for i in range(0, 10, 1):
+    print np.pow(2, -i)
+print 'Over.'
 #  print bai.data
 #  bai.data.save()
 #  bai.data.load()
