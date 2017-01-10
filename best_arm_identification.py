@@ -20,9 +20,9 @@ _delta = 0.1
 # Default $\beta$
 _beta = 1
 # Default means of the normal random variables
-_means = np.arange(0, 1.0, 0.2, dtype=_float_type)
-_means[3] = 0.79
-# _means = np.random.permutation(_means)
+_means = np.arange(0, 1.0, 0.1, dtype=_float_type)
+# _means[3] = 0.79
+_means = np.random.permutation(_means)
 # Default variance of the normal random variables
 _variances = np.ones(_means.size, dtype=_float_type) * 0.25
 _num_pulls = 70
@@ -36,7 +36,7 @@ def _is_zero(float_num):
 
 
 def _is_equal(floata, floatb):
-    """Decide whether two floats are equal accroding to the precision"""
+    """Decide whether two floats are equal according to the precision"""
     return _is_zero(floata, floatb)
 
 
@@ -191,33 +191,13 @@ class AlgCache:
                 self.t[arm_id] += 1
             t -= 1
 
-    def _successive_elimination_delete_arms(self, t, omiga, delta):
-        max_mean = self.means[self.ref_id]
-        threshold = (
-            2 * _compute_successive_elimination_threshold(t, self.n, 4, delta))
-        omiga_flag = np.ones(omiga.size, np.bool)
-        i = 0
-        del_flag = False
-        while i < omiga.size:
-            if max_mean - self.means[omiga[i]] > threshold:
-                omiga_flag[i] = False
-                del_flag = True
-            i += 1
-        if del_flag:
-            return omiga[omiga_flag]
-        else:
-            return omiga
-
-    def successive_elimination_pull(self, t, omiga, delta):
-        self._pull_arms(1, omiga)
-        for arm_id in omiga:
-            self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
-            if self.means[arm_id] > self.means[self.ref_id]:
-                self.ref_id = arm_id
-        return self._successive_elimination_delete_arms(t, omiga, delta)
-
     def _median_elimination_pull(self, omiga, epsilon, delta):
+        print np.log(3.0 / delta)
+        print epsilon
+        print (epsilon * epsilon / 4.0)
         t = np.log(3.0 / delta) / (epsilon * epsilon / 4.0)
+        print 'media-el time: %d' % t
+        print 'media-el epsilon: %f delta %f' % (epsilon, delta)
         self._pull_arms(t, omiga)
         for arm_id in omiga:
             self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
@@ -264,6 +244,7 @@ class AlgCache:
 
     def exponential_gap_elimination_pull(self, epsilon, delta, omiga):
         t = np.ceil((2.0 / epsilon / epsilon) * np.log(2.0 / delta))
+        print 'exp-gap time: %d' % t
         self._pull_arms(t, omiga)
         for arm_id in omiga:
             self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
@@ -338,6 +319,235 @@ class AEConfidence:
         return tmp
 
 
+class Cache(object):
+    """Algorithm cache, holding temporary data
+
+    Args:
+        n: Number of arms
+        means: Empirical means of each arms. (Numpy.narray)
+        sums: Total of samples of each arms. (Numpy.narray)
+        t: The number of samples for each arms. (Numpy.narray)
+        confidence: The confidence of the algorithm. (Default 0.1)
+        pull: The hook of function for sampling.
+        r: The current round number.
+        threshold: Threshold for deleting arms.
+    """
+    def __init__(self, num_arms, confidence=0.1, pull=None):
+        super(Cache, self).__init__()
+        self.n = num_arms
+        self.means = np.zeros(self.n, _float_type)
+        self.sums = np.zeros(self.n, _float_type)
+        self.t = np.zeros(self.n, np.int)
+        self.confidence = confidence
+        self.pull = pull
+        self.r = 1
+        self.thresholld = None
+
+    def _pull_one_arm(self, arm_id):
+        """Sample arm_id-th arm once.
+
+        Args:
+            arm_id: The index of the arm
+        """
+        self.sums[arm_id] += self.pull(arm_id)
+        self.t[arm_id] += 1
+        return
+
+    def _pull_arms(self, omiga, t):
+        """Sample all the arms in set omiga by times.
+        Args:
+            omiga: The index set of the arms.(Numpy.narray)
+            t: The number of times.
+        """
+        while t > 0:
+            for arm_id in omiga:
+                self.sums[arm_id] += self.pull(arm_id)
+                self.t[arm_id] += 1
+            t -= 1
+        return
+
+    def _compute_one_mean(self, arm_id):
+        """Compute the empirical mean of the arm_id-th arm in the current.
+        Args:
+            arm_id: The index of the arm.
+        """
+        self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+        return
+
+    def _compute_means(self, omiga):
+        """Compute the empirical means of the arms in set omiga.
+
+        Args:
+            omiga: The set of index of the arms.
+        """
+        for arm_id in omiga:
+            self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+
+
+class SuccessiveElimination(Cache):
+    """Successive elimination algorithm.
+
+    Args:
+        omiga: The set of the active arms. (Numpy.narray)
+        c: Control constant greater than 4. (Default 4)
+        ref_id: The index of the arm with largest current empirical mean.
+    """
+    def __init__(self, num_arms, confidence, pull):
+        super(SuccessiveElimination, self).__init__(num_arms, confidence, pull)
+        self.omiga = None
+        self.c = 4
+        self.ref_id = 0
+
+    def compute_threshold(self):
+        """Compute the threshold of the successive elimination algorithm.
+
+        Return:
+            The threshold value.
+        """
+        self.threshold = 2 * np.sqrt(
+            np.log(self.c * self.r * self.r * self.n) / self.r)
+        return self.threshold
+
+    def _find_reference_arm(self):
+        for arm_id in self.omiga:
+            if self.means[arm_id] > self.means[self.ref_id]:
+                self.ref_id = arm_id
+        return
+
+    def _delete_arms(self):
+        max_mean = self.means[self.ref_id]
+        self.compute_threshold()
+        omiga_flag = np.ones(self.omiga.size, np.bool)
+        i = 0
+        del_flag = False
+        while i < self.omiga.size:
+            if max_mean - self.means[self.omiga[i]] > self.threshold:
+                omiga_flag[i] = False
+                del_flag = True
+            i += 1
+        if del_flag:
+            self.omiga = self.omiga[omiga_flag]
+
+    def run(self):
+        """Run the successive algorithm.
+
+        Return:
+            The best arm with probability 1 - confidence
+        """
+        self.omiga = np.arange(0, self.n, 1, np.int)
+        self.r += 1
+        while self.omiga.size > 1:
+            self._pull_arms(self.omiga, 1)
+            self._compute_means(self.omiga)
+            self._find_reference_arm()
+            self._delete_arms()
+            self.r += 1
+        return self.omiga[0]
+
+    def compute_time(self, means):
+        """Compute the worst case running time. (The order of time)
+
+        Args:
+            means: The expect value of the arms. (Not empirical)
+        """
+        gap = np.amax(means) - means
+        ret = 0
+        for el in gap:
+            if not _is_zero(el):
+                ret += np.log(means.size / self.confidence / el) / (el * el)
+        return ret
+
+
+class MedianElimination(Cache):
+    """Median elimination.
+
+    """
+    def __init__(self, num_arms, epsilon, confidence, pull):
+        super(MedianElimination, self).__init__(num_arms, confidence, pull)
+        self.omiga = None
+        self.epsilon = epsilon
+
+    def _delete_arms(self):
+        median = np.median(self.means[self.omiga])
+        omiga_flag = np.ones(self.omiga.size, np.bool)
+        i = 0
+        while i < self.omiga.size:
+            if self.means[self.omiga[i]] < median:
+                omiga_flag[i] = False
+            i += 1
+        self.omiga = self.omiga[omiga_flag]
+
+    def run(self, omiga):
+        self.omiga = omiga.copy()
+        self.r = 1
+        epsilon = self.epsilon / 4.0
+        delta = self.confidence / 2.0
+        while self.omiga.size > 1:
+            print np.log(3.0 / delta)
+            print epsilon
+            print (epsilon * epsilon / 4.0)
+            t = np.log(3.0 / delta) / (epsilon * epsilon / 4.0)
+            print 'me-el time: %d' % t
+            print 'me-el epsilon %f delta %f' % (epsilon, delta)
+            self._pull_arms(self.omiga, t)
+            self._compute_means(self.omiga)
+            self._delete_arms()
+            epsilon *= 0.75
+            delta /= 2.0
+            self.r += 1
+        return self.omiga[0]
+
+
+class ExponentialGapElimination(Cache):
+    """Exponential gap elimination algorithm
+
+    """
+    def __init__(self, num_arms, confidence, pull):
+        super(ExponentialGapElimination, self).__init__(
+            num_arms, confidence, pull)
+        self.omiga = None
+        self.ref_id = 0
+
+    def _delete_arms(self, epsilon):
+        omiga_flag = np.ones(self.omiga.size, np.bool)
+        del_flag = False
+        i = 0
+        ref_mean = self.means[self.ref_id] - epsilon
+        while i < self.omiga.size:
+            if self.means[self.omiga[i]] < ref_mean:
+                omiga_flag[i] = False
+                del_flag = True
+            i += 1
+        if del_flag:
+            self.omiga = self.omiga[omiga_flag]
+
+    def _median_elimination(self, epsilon, delta):
+        me = MedianElimination(self.n, epsilon, delta, self.pull)
+        self.ref_id = me.run(self.omiga)
+        return
+
+    def run(self):
+        self.omiga = np.arange(0, self.n, 1, np.int)
+        self.r = 1
+        epsilon = 1 / 8.0
+        while self.omiga.size > 1:
+            delta = self.confidence / (50 * self.r * self.r * self.r)
+            t = np.ceil((2.0 / epsilon / epsilon) * np.log(2.0 / delta))
+            print 'ex-gap round: %d' % self.r
+            print 'ex-gap time: %d' % t
+            print 'ex-gap epsilon %f delta %f' % (epsilon, delta)
+            self._pull_arms(self.omiga, t)
+            self._compute_means(self.omiga)
+            self._median_elimination(epsilon / 2.0, delta)
+            self._delete_arms(epsilon)
+            epsilon /= 2.0
+            self.r += 1
+        return self.omiga[0]
+
+    def compute_time(self, means):
+        return 1
+
+
 def action_elimination(num_arms, pull=None, delta=_delta, epsilon=_epsilon):
     """Nonadaptive LS algorithm"""
     conf_hook = AEConfidence(delta / num_arms, epsilon)
@@ -356,28 +566,6 @@ def action_elimination(num_arms, pull=None, delta=_delta, epsilon=_epsilon):
     return
 
 
-def successive_elimination(num_arms, pull=None, nu=_nu):
-    """Successive elimination algorithm
-
-    Args:
-        num_arms: Number of arms
-        pull: Function hook for generating datas(pull(arm_id))
-        nu: The confidence of the algorithm
-    """
-    dcache = AlgCache(num_arms, pull)
-    omiga = np.arange(0, dcache.n, 1, np.int)
-    t = 1
-    while omiga.size > 1:
-        omiga = dcache.successive_elimination_pull(t, omiga, nu)
-        t += 1
-        if t % 1000 == 0:
-            print 't = %d threshold = %f' % (
-                t, _compute_successive_elimination_threshold(t, num_arms))
-            print dcache.means
-    print omiga
-    return
-
-
 def exponential_gap_elimination(num_arms, pull=None, nu=_nu):
     """Exponeential gap elimination algorithm."""
     dcache = AlgCache(num_arms, pull)
@@ -386,6 +574,7 @@ def exponential_gap_elimination(num_arms, pull=None, nu=_nu):
     epsilon = 1/8.0
     while omiga.size > 1:
         delta = nu / (50 * r * r * r)
+        print 'exp-gap-ele epsilon %f delta %f' % (epsilon, delta)
         # print 'epsilon = %f delta = %f' % (epsilon, delta)
         omiga = dcache.exponential_gap_elimination_pull(epsilon, delta, omiga)
         epsilon /= 2.0
@@ -408,15 +597,12 @@ def lucb(means=_means, variances=_variances, delta=_delta, epsilon=_epsilon):
 def test():
     nd = NormalData(_means, _variances)
     print nd.means
-    successive_elimination(nd.n, nd.pull)
-    # exponential_gap_elimination(nd.n, nd.pull)
+    exponential_gap_elimination(nd.n, nd.pull)
     # print nd.data[:nd.data_max]
-    gap = np.amax(nd.means) - nd.means
-    cnt = 0
-    for el in gap:
-        if not _is_zero(el):
-            cnt += np.log(nd.n / _nu / el) / (el * el)
-    print cnt
+    # a = SuccessiveElimination(nd.n, _nu, nd.pull)
+    a = ExponentialGapElimination(nd.n, _nu, nd.pull)
+    print a.run()
+    # print a.compute_time(nd.means)
     print nd.data_max
-    print nd.data_max / cnt
+    # print nd.data_max / a.compute_time(nd.means)
     return
