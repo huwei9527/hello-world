@@ -20,8 +20,9 @@ _delta = 0.1
 # Default $\beta$
 _beta = 1
 # Default means of the normal random variables
-_means = np.arange(0, 1.1, 0.2, dtype=_float_type)
-#  _means = np.random.permutation(_means)
+_means = np.arange(0, 1.0, 0.2, dtype=_float_type)
+_means[3] = 0.79
+# _means = np.random.permutation(_means)
 # Default variance of the normal random variables
 _variances = np.ones(_means.size, dtype=_float_type) * 0.25
 _num_pulls = 70
@@ -114,7 +115,7 @@ class NormalData(object):
         np.savez(
             fname,
             means=self.means,
-            vars=self.vars,
+            variances=self.variances,
             data=self.data[:self.data_max],
             id=self.data_id[:self.data_max])
         return
@@ -122,7 +123,7 @@ class NormalData(object):
     def load(self, fname='NormalData.npz'):
         with np.load(fname) as d:
             self.means = d['means']
-            self.vars = d['vars']
+            self.variances = d['variances']
             self.data = d['data']
             self.data_id = d['id']
             self.data_max = self.data.size
@@ -183,6 +184,13 @@ class AlgCache:
         self.conf[self.h] = old_conf
         return ret_max_conf_id
 
+    def _pull_arms(self, t, omiga):
+        while t > 0:
+            for arm_id in omiga:
+                self.sums[arm_id] += self.pull_hook(arm_id)
+                self.t[arm_id] += 1
+            t -= 1
+
     def _successive_elimination_delete_arms(self, t, omiga, delta):
         max_mean = self.means[self.ref_id]
         threshold = (
@@ -201,18 +209,66 @@ class AlgCache:
             return omiga
 
     def successive_elimination_pull(self, t, omiga, delta):
+        self._pull_arms(1, omiga)
         for arm_id in omiga:
-            self.sums[arm_id] += self.pull_hook(arm_id)
-            self.t[arm_id] += 1
             self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
             if self.means[arm_id] > self.means[self.ref_id]:
                 self.ref_id = arm_id
-        return self._successive_elimination_delete_arms(t, omiga)
+        return self._successive_elimination_delete_arms(t, omiga, delta)
+
+    def _median_elimination_pull(self, omiga, epsilon, delta):
+        t = np.log(3.0 / delta) / (epsilon * epsilon / 4.0)
+        self._pull_arms(t, omiga)
+        for arm_id in omiga:
+            self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+        median = np.median(self.means[omiga])
+        omiga_flag = np.ones(omiga.size, np.bool)
+        i = 0
+        while i < omiga.size:
+            if self.means[omiga[i]] < median:
+                omiga_flag[i] = False
+            i += 1
+        return omiga[omiga_flag]
+
+    def median_elimination(self, omiga, epsilon, delta):
+        """Median elimination algorithm"""
+        epsilon_r = epsilon / 4.0
+        delta_r = delta / 2.0
+        omiga_r = omiga.copy()
+        dcache = AlgCache(self.n, self.pull_hook)
+        while omiga_r.size > 1:
+            # print (
+            #    'median elimination:''epsilon %f ' 'delta %f') % (
+            #        epsilon_r, delta_r)
+            # print omiga_r
+            omiga_r = dcache._median_elimination_pull(
+                omiga_r, epsilon_r, delta_r)
+            epsilon_r *= 0.75
+            delta_r /= 2.0
+        return omiga_r[0]
+
+    def _exponential_gap_elimination_delete_arms(self, omiga, epsilon):
+        omiga_flag = np.ones(omiga.size, np.bool)
+        del_flag = False
+        i = 0
+        ref_mean = self.means[self.ref_id]
+        while i < omiga.size:
+            if self.means[omiga[i]] < ref_mean - epsilon:
+                omiga_flag[i] = False
+                del_flag = True
+            i += 1
+        if del_flag:
+            return omiga[omiga_flag]
+        else:
+            return omiga
 
     def exponential_gap_elimination_pull(self, epsilon, delta, omiga):
-        t = (2.0 / epsilon / epsilon) * np.log(2.0 / delta)
+        t = np.ceil((2.0 / epsilon / epsilon) * np.log(2.0 / delta))
         self._pull_arms(t, omiga)
-        self.ref_id = self._median_elimination(omiga, epsilon / 0.2, delta)
+        for arm_id in omiga:
+            self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+        # print 'pull %d times' % t
+        self.ref_id = self.median_elimination(omiga, epsilon / 0.2, delta)
         return self._exponential_gap_elimination_delete_arms(omiga, epsilon)
 
     def pull(self, arm_id):
@@ -262,24 +318,6 @@ def _ae_delete_certian_small_arms(data_cache, omiga, k):
                 ret_omiga[ret_index] = omiga[i]
                 ret_index += 1
         return ret_omiga
-
-
-def _pull_arm(data_cache, arm_id, r=1):
-    """Pull one arm r times"""
-    while r > 0:
-        data_cache.pull(arm_id)
-        r -= 1
-    return
-
-
-def _pull_arms(data_cache, omiga, r=1):
-    """Pull all the arms r times in the set omiga"""
-    while r > 0:
-        for i in range(0, omiga.size, 1):
-            data_cache.pull(omiga[i])
-        r -= 1
-    #  print data_cache
-    return
 
 
 class AEConfidence:
@@ -332,6 +370,10 @@ def successive_elimination(num_arms, pull=None, nu=_nu):
     while omiga.size > 1:
         omiga = dcache.successive_elimination_pull(t, omiga, nu)
         t += 1
+        if t % 1000 == 0:
+            print 't = %d threshold = %f' % (
+                t, _compute_successive_elimination_threshold(t, num_arms))
+            print dcache.means
     print omiga
     return
 
@@ -344,9 +386,11 @@ def exponential_gap_elimination(num_arms, pull=None, nu=_nu):
     epsilon = 1/8.0
     while omiga.size > 1:
         delta = nu / (50 * r * r * r)
+        # print 'epsilon = %f delta = %f' % (epsilon, delta)
         omiga = dcache.exponential_gap_elimination_pull(epsilon, delta, omiga)
         epsilon /= 2.0
         r += 1
+    print omiga
     return
 
 
@@ -362,9 +406,17 @@ def lucb(means=_means, variances=_variances, delta=_delta, epsilon=_epsilon):
 
 
 def test():
-    print 'aa'
     nd = NormalData(_means, _variances)
+    print nd.means
     successive_elimination(nd.n, nd.pull)
+    # exponential_gap_elimination(nd.n, nd.pull)
     # print nd.data[:nd.data_max]
+    gap = np.amax(nd.means) - nd.means
+    cnt = 0
+    for el in gap:
+        if not _is_zero(el):
+            cnt += np.log(nd.n / _nu / el) / (el * el)
+    print cnt
     print nd.data_max
+    print nd.data_max / cnt
     return
