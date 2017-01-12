@@ -48,7 +48,7 @@ class NormalData(object):
         self.means = means.copy()
         self.n = self.means.size
         self.variances = variances.copy()
-        self._mem_step = int(num_pulls * _compute_h_1(self.means))
+        self._mem_step = int(num_pulls * 10000)
         self.data = np.zeros(self._mem_step, dtype=_float_type)
         self.data_id = np.zeros(self.data.shape, dtype=np.int)
         self.data_max = 0
@@ -57,11 +57,9 @@ class NormalData(object):
     def __str__(self):
         return (("means: %s\n"
                  "variances: %s\n"
-                 "H1: %f\n"
                  "(data_max/max):(%d/%d)\n") %
                 (self.means,
                  self.variances,
-                 _compute_h_1(self.means),
                  self.data_max, self.data.size))
 
     def pull(self, arm_id):
@@ -185,7 +183,7 @@ class Cache(object):
             self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
 
     def _compute_mean_delta(self, means):
-        """Compute differeces from the largest value of the means.
+        """Compute differences from the largest value of the means.
         delta_i = max_mean - mean_i
         """
         return np.amax(means) - means
@@ -193,6 +191,18 @@ class Cache(object):
     def compute_time(self, means):
         """Compute the order of time in theory."""
         pass
+
+    def compute_bound(self, n, t, epsilon, delta):
+        """Compute the bound value."""
+        e_plus_one = epsilon + 1
+        log_value = np.log(e_plus_one * t + 2)
+        loglog_value = np.log(2 * log_value / (delta / n))
+        sqrt_value = np.sqrt(2 * delta * delta * e_plus_one * loglog_value / t)
+        return (1 + np.sqrt(epsilon)) * sqrt_value
+
+    def compute_lamda(self, beta):
+        ret = (2 + beta) / beta
+        return ret * ret
 
 
 class SuccessiveElimination(Cache):
@@ -388,6 +398,10 @@ class UpperConfidenceBound(Cache):
     """
     def __init__(self, num_arms, confidence, pull):
         super(UpperConfidenceBound, self).__init__(num_arms, confidence, pull)
+        self.epsilon = 0.01
+        self.beta = 1
+        self.lamda = self.compute_lamda(self.beta)
+        self.delta = self.compute_delta()
         return
 
     def run(self):
