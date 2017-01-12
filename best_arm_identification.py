@@ -22,12 +22,13 @@ _beta = 1
 # Default means of the normal random variables
 _means = np.arange(0, 1.0, 0.2, dtype=_float_type)
 # _means[3] = 0.79
-_means = np.random.permutation(_means)
+# _means = np.random.permutation(_means)
 # Default variance of the normal random variables
 _variances = np.ones(_means.size, dtype=_float_type) * 0.25
 _num_pulls = 70
 # (1 - _nu) is the default confidence of the algorithm
 _nu = 0.1
+_alloc_step = 10000
 
 
 def _is_zero(float_num):
@@ -48,8 +49,7 @@ class NormalData(object):
         self.means = means.copy()
         self.n = self.means.size
         self.variances = variances.copy()
-        self._mem_step = int(num_pulls * 10000)
-        self.data = np.zeros(self._mem_step, dtype=_float_type)
+        self.data = np.zeros(_alloc_step, dtype=_float_type)
         self.data_id = np.zeros(self.data.shape, dtype=np.int)
         self.data_max = 0
         return
@@ -69,7 +69,7 @@ class NormalData(object):
         """
         assert arm_id < self.n
         if not (self.data_max < self.data.size):
-            self.data.resize(self.data.size + self._mem_step)
+            self.data.resize(self.data.size + _alloc_step)
             self.data_id.resize(self.data.size)
         arm_id = int(arm_id)
         # non-central normal distribution: var * n + mu
@@ -137,10 +137,13 @@ class Cache(object):
         self.means = np.zeros(self.n, _float_type)
         self.sums = np.zeros(self.n, _float_type)
         self.t = np.zeros(self.n, np.int)
+        self.ub = np.zeros(self.n, _float_type)
         self.confidence = confidence
         self.pull = pull
         self.r = 1
         self.thresholld = None
+        self.bound = np.zeros(_alloc_step, _float_type)
+        self.bound_max = 0
 
     def _pull_one_arm(self, arm_id):
         """Sample arm_id-th arm once.
@@ -192,17 +195,51 @@ class Cache(object):
         """Compute the order of time in theory."""
         pass
 
-    def compute_bound(self, n, t, epsilon, delta):
+    def compute_bound(self, n, t, epsilon, delta, sigma=0.25):
         """Compute the bound value."""
         e_plus_one = epsilon + 1
         log_value = np.log(e_plus_one * t + 2)
-        loglog_value = np.log(2 * log_value / (delta / n))
-        sqrt_value = np.sqrt(2 * delta * delta * e_plus_one * loglog_value / t)
+        loglog_value = np.log(2 * log_value / delta)
+        sqrt_value = np.sqrt(2 * sigma * sigma * e_plus_one * loglog_value / t)
         return (1 + np.sqrt(epsilon)) * sqrt_value
 
     def compute_lamda(self, beta):
         ret = (2 + beta) / beta
         return ret * ret
+
+    def compute_ub(self, arm_id, epsilon, delta):
+        self.ub[arm_id] = (
+            self.means[arm_id] +
+            self.compute_bound(self.n, self.t[arm_id], epsilon, delta))
+        return
+
+    def lil_stop_condition(self, lamda):
+        sum_t = self.t.sum()
+        ret = False
+        for i in range(0, self.n, 1):
+            if self.t[i] >= 1 + lamda * (sum_t - self.t[i]):
+                ret = True
+                break
+        return ret
+
+    def _find_max_ub(self, arm_id):
+        max_value = self.ub[0]
+        max_id = 0
+        for i in range(1, self.ub.size, 1):
+            if i != arm_id and max_value < self.ub[i]:
+                max_value = self.ub[i]
+                max_id = i
+        return max_id
+
+    def ls_stop_condition(self, epsilon, delta):
+        ret = False
+        arm_i = self.means.argmax()
+        arm_j = self._find_max_ub(arm_i)
+        bi = self.compute_bound(self.n, self.t[arm_i], epsilon, delta)
+        bj = self.compute_bound(self.n, self.t[arm_j], epsilon, delta)
+        if self.means[arm_i] - bi > self.means[arm_j] + bj:
+            ret = True
+        return ret
 
 
 class SuccessiveElimination(Cache):
@@ -401,11 +438,41 @@ class UpperConfidenceBound(Cache):
         self.epsilon = 0.01
         self.beta = 1
         self.lamda = self.compute_lamda(self.beta)
-        self.delta = self.compute_delta()
+        self.ucb = np.zeros(self.n, _float_type)
         return
 
+    def _compute_ucb_bound(self, arm_id):
+        self.ucb[arm_id] = (
+            self.means[arm_id] +
+            (1 + self.beta) * self.compute_bound(
+                self.n, self.t[arm_id], self.epsilon, self.delta))
+
+    def _compute_lil_delta(self, epsilon):
+        eplus_one = 1 + epsilon
+        log_value = 1 / np.log(eplus_one)
+        pow_value = np.power(log_value, eplus_one)
+        c = (2 + epsilon) * pow_value / epsilon
+        square_delta = (np.sqrt(self.confidence + 0.25) - 0.5)
+        self.delta = square_delta * square_delta / c
+        return self.delta
+
     def run(self):
-        return
+        self.epsilon = 0.01
+        self.beta = 1.0
+        self.lamda = self.compute_lamda(self.beta)
+        self.delta = self._compute_lil_delta(self.epsilon)
+        omiga = np.arange(0, self.n, 1, np.int)
+        self._pull_arms(omiga, 1)
+        self._compute_means(omiga)
+        for i in range(0, self.n, 1):
+            self._compute_ucb_bound(i)
+        while not self.lil_stop_condition(self.lamda):
+            arm_id = self.ucb.argmax()
+            self._pull_one_arm(arm_id)
+            self._compute_one_mean(arm_id)
+            self._compute_ucb_bound(arm_id)
+        print self.t
+        return self.t.argmax()
 
 
 class LUCB(Cache):
@@ -428,8 +495,10 @@ def test():
     # print nd.data[:nd.data_max]
     # a = SuccessiveElimination(nd.n, _nu, nd.pull)
     # a = ExponentialGapElimination(nd.n, _nu, nd.pull)
-    a = Naive(nd.n, _nu, nd.pull)
-    print a.run(0.3)
+    # a = Naive(nd.n, _nu, nd.pull)
+    _nu = 0.1
+    a = UpperConfidenceBound(nd.n, _nu, nd.pull)
+    print a.run()
     print a.compute_time(nd.means)
     print nd.data_max
     # print nd.data_max / a.compute_time(nd.means)
