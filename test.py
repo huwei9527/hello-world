@@ -10,6 +10,23 @@ import best_arm_identification as bai
 
 bai.test()
 
+
+class A(object):
+
+    def __init__(self):
+        return
+
+    def __str__(self):
+        return "str_string"
+
+    @staticmethod
+    def testcm(a):
+        print a
+
+
+a = A()
+A.testcm(100)
+
 print 'Over.'
 #  print bai.data
 #  bai.data.save()

@@ -41,6 +41,22 @@ def _is_equal(floata, floatb):
     return _is_zero(floata, floatb)
 
 
+class FloatVector(object):
+    """Dynamic Numpy float array.
+
+    Note that the size of Numpy.narray is fixed. When we want to store larger
+    data set, we will manully resize it.
+    Member:
+        _step: The step of resizing.
+        data:
+    """
+    _step = 10000
+
+    def __init__(self):
+        self.data = None
+        return
+
+
 class NormalData(object):
     """Normal data"""
 
@@ -137,6 +153,8 @@ class Cache(object):
         self.means = np.zeros(self.n, _float_type)
         self.sums = np.zeros(self.n, _float_type)
         self.t = np.zeros(self.n, np.int)
+        self.sum_t = 0
+        self.max_t = 0
         self.ub = np.zeros(self.n, _float_type)
         self.confidence = confidence
         self.pull = pull
@@ -153,6 +171,9 @@ class Cache(object):
         """
         self.sums[arm_id] += self.pull(arm_id)
         self.t[arm_id] += 1
+        self.sum_t += 1
+        if self.t[arm_id] > self.max_t:
+            self.max_t = self.t[arm_id]
         return
 
     def _pull_arms(self, omiga, t):
@@ -185,7 +206,8 @@ class Cache(object):
         for arm_id in omiga:
             self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
 
-    def _compute_mean_delta(self, means):
+    @classmethod
+    def _compute_mean_delta(cls, means):
         """Compute differences from the largest value of the means.
         delta_i = max_mean - mean_i
         """
@@ -195,18 +217,26 @@ class Cache(object):
         """Compute the order of time in theory."""
         pass
 
-    def compute_bound(self, n, t, epsilon, delta, sigma=0.25):
-        """Compute the bound value."""
+    @classmethod
+    def compute_lil_bound(cls, n, t, epsilon, delta, sigma=0.25):
+        """Compute the LIL (Law of iterated logarithm) bound value."""
         e_plus_one = epsilon + 1
         log_value = np.log(e_plus_one * t + 2)
         loglog_value = np.log(2 * log_value / delta)
         sqrt_value = np.sqrt(2 * sigma * sigma * e_plus_one * loglog_value / t)
         return (1 + np.sqrt(epsilon)) * sqrt_value
 
-    def compute_lamda(self, beta):
+    @classmethod
+    def compute_ls_bound(cls, n, t, epsilon, delta, sigma=0.25):
+        """Compute the LS (LIL stopping) bound value."""
+        return cls.compute_lil_bound(n, t, epsilon, delta / n, sigma)
+
+    @classmethod
+    def compute_lamda(cls, beta):
         ret = (2 + beta) / beta
         return ret * ret
 
+    @classmethod
     def compute_ub(self, arm_id, epsilon, delta):
         self.ub[arm_id] = (
             self.means[arm_id] +
@@ -214,13 +244,7 @@ class Cache(object):
         return
 
     def lil_stop_condition(self, lamda):
-        sum_t = self.t.sum()
-        ret = False
-        for i in range(0, self.n, 1):
-            if self.t[i] >= 1 + lamda * (sum_t - self.t[i]):
-                ret = True
-                break
-        return ret
+        return self.max_t >= 1 + lamda * (self.sum_t - self.max_t)
 
     def _find_max_ub(self, arm_id):
         max_value = self.ub[0]
@@ -441,36 +465,40 @@ class UpperConfidenceBound(Cache):
         self.ucb = np.zeros(self.n, _float_type)
         return
 
-    def _compute_ucb_bound(self, arm_id):
+    def _compute_lil_bound(self, arm_id):
         self.ucb[arm_id] = (
             self.means[arm_id] +
-            (1 + self.beta) * self.compute_bound(
+            (1 + self.beta) * self.compute_lil_bound(
                 self.n, self.t[arm_id], self.epsilon, self.delta))
 
-    def _compute_lil_delta(self, epsilon):
-        eplus_one = 1 + epsilon
+    def _compute_lil_delta(self):
+        eplus_one = 1 + self.epsilon
         log_value = 1 / np.log(eplus_one)
         pow_value = np.power(log_value, eplus_one)
-        c = (2 + epsilon) * pow_value / epsilon
+        c = (2 + self.epsilon) * pow_value / self.epsilon
         square_delta = (np.sqrt(self.confidence + 0.25) - 0.5)
         self.delta = square_delta * square_delta / c
         return self.delta
 
     def run(self):
-        self.epsilon = 0.01
-        self.beta = 1.0
-        self.lamda = self.compute_lamda(self.beta)
-        self.delta = self._compute_lil_delta(self.epsilon)
+        self.delta = self._compute_lil_delta()
         omiga = np.arange(0, self.n, 1, np.int)
         self._pull_arms(omiga, 1)
+        self.sum_t = self.n
+        self.max_t = 1
         self._compute_means(omiga)
         for i in range(0, self.n, 1):
-            self._compute_ucb_bound(i)
+            self._compute_lil_bound(i)
+        self.r = 0
         while not self.lil_stop_condition(self.lamda):
             arm_id = self.ucb.argmax()
             self._pull_one_arm(arm_id)
             self._compute_one_mean(arm_id)
-            self._compute_ucb_bound(arm_id)
+            self._compute_lil_bound(arm_id)
+            self.r += 1
+            if self.r % 10000 == 0:
+                print self.means
+                print self.t
         print self.t
         return self.t.argmax()
 
