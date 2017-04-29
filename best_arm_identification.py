@@ -1,5 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
+import data_structure as ds
 
 
 def main():
@@ -10,321 +10,284 @@ def main():
 if __name__ == '__main__':
     main()
 
-_float_type = np.float
-# The precision of computing float numbers
-precision = np.finfo(float).resolution
-# Default $\epsilon$
-_epsilon = 0.01
-# Default $\delta$
-_delta = 0.1
-# Default $\beta$
-_beta = 1
-# Default means of the normal random variables
-_means = np.arange(0, 1.0, 0.2, dtype=_float_type)
-# _means[3] = 0.79
-# _means = np.random.permutation(_means)
-# Default variance of the normal random variables
-_variances = np.ones(_means.size, dtype=_float_type) * 0.25
-_num_pulls = 70
-# (1 - _nu) is the default confidence of the algorithm
-_nu = 0.1
-_alloc_step = 10000
+_float_type = ds._float_type
 
 
-def _is_zero(float_num):
-    """Decide whether the given float number is zero"""
-    return (np.fabs(float_num) < precision)
+class Configuration(object):
+    """Documentation for Configuration
 
-
-def _is_equal(floata, floatb):
-    """Decide whether two floats are equal according to the precision"""
-    return _is_zero(floata, floatb)
-
-
-class FloatVector(object):
-    """Dynamic Numpy float array.
-
-    Note that the size of Numpy.narray is fixed. When we want to store larger
-    data set, we will manully resize it.
-    Member:
-        _step: The step of resizing.
-        data:
     """
-    _step = 10000
-
-    def __init__(self):
-        self.data = None
-        return
-
-
-class NormalData(object):
-    """Normal data"""
-
-    def __init__(self, means, variances, num_pulls=_num_pulls):
-        """Init function"""
-        self.means = means.copy()
-        self.n = self.means.size
-        self.variances = variances.copy()
-        self.data = np.zeros(_alloc_step, dtype=_float_type)
-        self.data_id = np.zeros(self.data.shape, dtype=np.int)
-        self.data_max = 0
+    def __init__(
+            self, size=100, confidence=0.1, epsilon=0.1, beta=1.0, sigma=0.25):
+        super(Configuration, self).__init__()
+        self.n = size
+        self.v = confidence
+        self.e = epsilon
+        self.b = beta
+        self.s = sigma
         return
 
     def __str__(self):
-        return (("means: %s\n"
-                 "variances: %s\n"
-                 "(data_max/max):(%d/%d)\n") %
-                (self.means,
-                 self.variances,
-                 self.data_max, self.data.size))
-
-    def pull(self, arm_id):
-        """Pull the arm_id-th arm without checking the legality of the index.
-
-        You need to make sure that arm_id is in the range.
-        """
-        assert arm_id < self.n
-        if not (self.data_max < self.data.size):
-            self.data.resize(self.data.size + _alloc_step)
-            self.data_id.resize(self.data.size)
-        arm_id = int(arm_id)
-        # non-central normal distribution: var * n + mu
-        self.data[self.data_max] = np.random.normal(self.means[arm_id],
-                                                    self.variances[arm_id])
-        # maintain the index which arm the value belongs to
-        self.data_id[self.data_max] = arm_id
-        self.data_max += 1
-        return self.data[self.data_max - 1]
-
-    def save(self, fname='NormalData'):
-        np.savez(
-            fname,
-            means=self.means,
-            variances=self.variances,
-            data=self.data[:self.data_max],
-            id=self.data_id[:self.data_max])
-        return
-
-    def load(self, fname='NormalData.npz'):
-        with np.load(fname) as d:
-            self.means = d['means']
-            self.variances = d['variances']
-            self.data = d['data']
-            self.data_id = d['id']
-            self.data_max = self.data.size
-            for i in range(self.data_max - 10, self.data_max, 1):
-                print '%d %f\n' % (self.data_id[i], self.data[i])
-
-    def hist(self, arm_id):
-        a = np.bincount(self.data_id)
-        print a
-        b = np.zeros(a[arm_id], _float_type)
-        iarm = 0
-        idata = 0
-        size = self.data.size
-        while idata < size:
-            if self.data_id[idata] == arm_id:
-                b[iarm] = self.data[idata]
-                iarm += 1
-            idata += 1
-        plt.hist(b, bins=np.ceil(a[arm_id] / 10.0))
-        plt.show()
+        return ("n = %d v = %f e = %f b = %f s = %f" %
+                (self.n, self.v, self.e, self.b, self.s))
 
 
-data = NormalData(_means, _variances)
+class Arms(object):
+    """Documentation for Arms
 
-
-class Cache(object):
-    """Algorithm cache, holding temporary data
-
-    Args:
-        n: Number of arms
-        means: Empirical means of each arms. (Numpy.narray)
-        sums: Total of samples of each arms. (Numpy.narray)
-        t: The number of samples for each arms. (Numpy.narray)
-        confidence: The confidence of the algorithm. (Default 0.1)
-        pull: The hook of function for sampling.
-        r: The current round number.
-        threshold: Threshold for deleting arms.
     """
-    def __init__(self, num_arms, confidence=0.1, pull=None):
-        super(Cache, self).__init__()
-        self.n = num_arms
-        self.means = np.zeros(self.n, _float_type)
-        self.sums = np.zeros(self.n, _float_type)
+    def __init__(self, size, pull):
+        super(Arms, self).__init__()
+        self.n = size
+        self.active_arms = np.arange(0, self.n, 1, np.int)
+        self._pull = pull
         self.t = np.zeros(self.n, np.int)
-        self.sum_t = 0
-        self.max_t = 0
-        self.ub = np.zeros(self.n, _float_type)
-        self.confidence = confidence
-        self.pull = pull
-        self.r = 1
-        self.thresholld = None
-        self.bound = np.zeros(_alloc_step, _float_type)
-        self.bound_max = 0
+        self.sums = np.zeros(self.n, _float_type)
+        self.means = np.zeros(self.n, _float_type)
 
-    def _pull_one_arm(self, arm_id):
-        """Sample arm_id-th arm once.
+    def __getitem__(self, index):
+        return self.active_arms[index]
 
-        Args:
-            arm_id: The index of the arm
-        """
-        self.sums[arm_id] += self.pull(arm_id)
-        self.t[arm_id] += 1
-        self.sum_t += 1
-        if self.t[arm_id] > self.max_t:
-            self.max_t = self.t[arm_id]
+    def is_unique(self):
+        return self.active_arms.size == 1
+
+    def set_active_arms(self, arms):
+        self.active_arms = arms.active_arms.copy()
         return
 
-    def _pull_arms(self, omiga, t):
-        """Sample all the arms in set omiga by times.
-        Args:
-            omiga: The index set of the arms.(Numpy.narray)
-            t: The number of times.
-        """
-        while t > 0:
-            for arm_id in omiga:
-                self.sums[arm_id] += self.pull(arm_id)
-                self.t[arm_id] += 1
-            t -= 1
-        return
-
-    def _compute_one_mean(self, arm_id):
-        """Compute the empirical mean of the arm_id-th arm in the current.
-        Args:
-            arm_id: The index of the arm.
-        """
-        self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
-        return
-
-    def _compute_means(self, omiga):
-        """Compute the empirical means of the arms in set omiga.
-
-        Args:
-            omiga: The set of index of the arms.
-        """
-        for arm_id in omiga:
-            self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
-
-    @classmethod
-    def _compute_mean_delta(cls, means):
-        """Compute differences from the largest value of the means.
-        delta_i = max_mean - mean_i
-        """
-        return np.amax(means) - means
-
-    def compute_time(self, means):
-        """Compute the order of time in theory."""
-        pass
-
-    @classmethod
-    def compute_lil_bound(cls, n, t, epsilon, delta, sigma=0.25):
-        """Compute the LIL (Law of iterated logarithm) bound value."""
-        e_plus_one = epsilon + 1
-        log_value = np.log(e_plus_one * t + 2)
-        loglog_value = np.log(2 * log_value / delta)
-        sqrt_value = np.sqrt(2 * sigma * sigma * e_plus_one * loglog_value / t)
-        return (1 + np.sqrt(epsilon)) * sqrt_value
-
-    @classmethod
-    def compute_ls_bound(cls, n, t, epsilon, delta, sigma=0.25):
-        """Compute the LS (LIL stopping) bound value."""
-        return cls.compute_lil_bound(n, t, epsilon, delta / n, sigma)
-
-    @classmethod
-    def compute_lamda(cls, beta):
-        ret = (2 + beta) / beta
-        return ret * ret
-
-    @classmethod
-    def compute_ub(self, arm_id, epsilon, delta):
-        self.ub[arm_id] = (
-            self.means[arm_id] +
-            self.compute_bound(self.n, self.t[arm_id], epsilon, delta))
-        return
-
-    def lil_stop_condition(self, lamda):
-        return self.max_t >= 1 + lamda * (self.sum_t - self.max_t)
-
-    def _find_max_ub(self, arm_id):
-        max_value = self.ub[0]
-        max_id = 0
-        for i in range(1, self.ub.size, 1):
-            if i != arm_id and max_value < self.ub[i]:
-                max_value = self.ub[i]
-                max_id = i
-        return max_id
-
-    def ls_stop_condition(self, epsilon, delta):
-        ret = False
-        arm_i = self.means.argmax()
-        arm_j = self._find_max_ub(arm_i)
-        bi = self.compute_bound(self.n, self.t[arm_i], epsilon, delta)
-        bj = self.compute_bound(self.n, self.t[arm_j], epsilon, delta)
-        if self.means[arm_i] - bi > self.means[arm_j] + bj:
-            ret = True
-        return ret
-
-
-class SuccessiveElimination(Cache):
-    """Successive elimination algorithm.
-
-    Args:
-        omiga: The set of the active arms. (Numpy.narray)
-        c: Control constant greater than 4. (Default 4)
-        ref_id: The index of the arm with largest current empirical mean.
-    """
-    def __init__(self, num_arms, confidence, pull):
-        super(SuccessiveElimination, self).__init__(num_arms, confidence, pull)
-        self.omiga = None
-        self.c = 4
-        self.ref_id = 0
-
-    def compute_threshold(self):
-        """Compute the threshold of the successive elimination algorithm.
-
-        Return:
-            The threshold value.
-        """
-        self.threshold = 2 * np.sqrt(
-            np.log(self.c * self.r * self.r * self.n) / self.r)
-        return self.threshold
-
-    def _find_reference_arm(self):
-        for arm_id in self.omiga:
-            if self.means[arm_id] > self.means[self.ref_id]:
-                self.ref_id = arm_id
-        return
-
-    def _delete_arms(self):
-        max_mean = self.means[self.ref_id]
-        self.compute_threshold()
-        omiga_flag = np.ones(self.omiga.size, np.bool)
+    def delete(self, compare):
         i = 0
+        flag = np.ones(self.active_arms.size, np.bool)
         del_flag = False
-        while i < self.omiga.size:
-            if max_mean - self.means[self.omiga[i]] > self.threshold:
-                omiga_flag[i] = False
+        while i < self.active_arms.size:
+            if compare(self, self.active_arms[i]):
+                flag[i] = False
                 del_flag = True
             i += 1
         if del_flag:
-            self.omiga = self.omiga[omiga_flag]
+            self.active_arms = self.active_arms[flag]
+        return None
+
+    def pull(self, arm_id):
+        self.sums[arm_id] += self._pull(arm_id)
+        self.t[arm_id] += 1
+        self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+        return
+
+    def pull_all(self, t=1):
+        while t > 0:
+            for arm_id in self.active_arms:
+                self.sums[arm_id] += self._pull(arm_id)
+                self.t[arm_id] += 1
+            t -= 1
+        for arm_id in self.active_arms:
+            self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+        return
+
+    def init_for_lil_stop_condition(self):
+        self.means = ds.SortedList()
+        for i in range(0, self.n, 1):
+            self.sums[i] = self._pull(i)
+            self.t[i] = 1
+            self.means.append(self.sums[i] / self.t[i])
+        return
+
+    def arm_id_of_max_active_mean(self):
+        max_id = self.active_arms[0]
+        for arm_id in self.active_arms:
+            if self.means[arm_id] > self.means[max_id]:
+                max_id = arm_id
+        return max_id
+
+    def active_means_median(self):
+        return np.median(self.means[self.active_arms])
+
+    def active_unique_arm_id(self):
+        return self.active_arms[0]
+
+
+class FastArms(object):
+    """Documentation for FastArms
+
+    """
+    def __init__(self):
+        super(FastArms, self).__init__()
+        return None
+
+
+class LilStopCondition(object):
+    """Documentation for LilStopCondition
+
+    """
+    def __init__(self, conf, arms):
+        super(LilStopCondition, self).__init__()
+        self.conf = conf
+        self._arms = arms
+
+        self.e_1 = 1 + self.conf.e
+        self._d = (
+            np.log(self.e_1) * np.power(
+                self.conf.v * self.conf.e / (2 + self.conf.e), 1 / self.e_1))
+
+        self._c1 = 1 + np.sqrt(self.conf.e)
+        self._c2 = 2 * self.conf.s * self.conf.s * self.e_1
+        self._c3 = 2 * self.conf.n / self._d
+
+        self.lcb_of_max_arms = 0.0
+        self.max_rest_ucb = 0.0
+        return
+
+    def _compute_b(self, t):
+        return (self._c1 * np.sqrt(
+            self._c2 * np.log(self._c3 * np.log(self.e_1 * t + 2)) / t))
+
+    def stop_condition(self):
+        return (self.lcb_of_max_arms >= self.max_rest_ucb)
+
+
+class LSBatch(LilStopCondition):
+    """Documentation for LSBatch
+
+    """
+    def __init__(self, conf, pull):
+        super(LSBatch, self).__init__(conf, pull)
+        return
+
+    def pull_all(self, t=1):
+        self._arms.pull_all(t)
+        b = self._compute_b(self._arms.t[self._arms.active_arms[0]])
+        i = 0
+        size = self._arms.active_arms.size
+        max = self._arms.means[self._arms.active_arms[0]]
+        smax = self._arms.means[self._arms.active_arms[1]]
+        if (max < smax):
+            max, smax = smax, max
+        for i in range(2, size):
+            el = self._arms.means[self._arms.active_arms[i]]
+            if (el > max):
+                smax = max
+                max = el
+            elif (el > smax):
+                smax = el
+        self.lcb_of_max_arms = max - b
+        self.max_rest_ucb = smax + b
+        return
+
+
+class LSSerial(object):
+    """Documentation for LSS
+
+    """
+    def __init__(self):
+        super(LSSerial, self).__init__()
+        return
+
+    def pull(self):
+        return
+
+
+class Algorithm(object):
+    """Algorithm cache, holding temporary data
+
+    """
+    def __init__(self, conf, pull):
+        super(Algorithm, self).__init__()
+        self.conf = conf
+        self.pull = pull
+
+    def compute_tie(self, means):
+        """Compute the order of time in theory."""
+        pass
+
+
+class Naive(Algorithm):
+    """Naive algorithm.
+
+    """
+    def __init__(self, conf, pull):
+        super(Naive, self).__init__(conf, pull)
+        return
+
+    def run(self):
+        t = (4.0 * np.log(2 * self.conf.n / self.conf.v)
+             / (self.conf.e * self.conf.e))
+        arms = Arms(self.conf.n, self.pull)
+        arms.pull_all(t)
+        return arms.means.argmax()
+
+    def run_ls(self):
+        arms = Arms(self.conf.n, self.pull)
+        ls = LSBatch(self.conf, arms)
+        self.r = 1
+        while True:
+            if self.r % 1000 == 0:
+                print '(r = %d)(ls)' % (self.r)
+            ls.pull_all()
+            if (ls.stop_condition()):
+                break
+            self.r += 1
+        return arms.means.argmax()
+
+
+class SuccessiveElimination(Algorithm):
+    """Successive elimination algorithm.
+
+    Args:
+        c: Control constant greater than 4. (Default 4)
+        ref_id: The index of the arm with largest current empirical mean.
+    """
+    def __init__(self, conf, pull):
+        super(SuccessiveElimination, self).__init__(conf, pull)
+        self.c = 4
+
+        self.c1 = self.c * self.conf.n / self.conf.v
+
+    def compute_threshold(self):
+        """Compute the threshold of the successive elimination algorithm.
+        """
+        self.threshold = 2 * np.sqrt(
+            np.log(self.c1 * self.r * self.r) / self.r)
+        return
+
+    def _compare(self, arms, arm_id):
+        return (
+            self.max_mean - arms.means[arm_id] > self.threshold)
+
+    def _delete_arms(self, arms):
+        ref_id = arms.arm_id_of_max_active_mean()
+        self.max_mean = arms.means[ref_id]
+        self.compute_threshold()
+        return arms.delete(self._compare)
 
     def run(self):
         """Run the successive algorithm.
-
-        Return:
-            The best arm with probability 1 - confidence
         """
-        self.omiga = np.arange(0, self.n, 1, np.int)
-        self.r += 1
-        while self.omiga.size > 1:
-            self._pull_arms(self.omiga, 1)
-            self._compute_means(self.omiga)
-            self._find_reference_arm()
-            self._delete_arms()
+        arms = Arms(self.conf.n, self.pull)
+        self.r = 1
+        while True:
+            if (arms.is_unique()):
+                break
+            if (self.r % 10000 == 0):
+                print '(r = %d)' % (self.r)
+            arms.pull_all(1)
+            self._delete_arms(arms)
             self.r += 1
-        return self.omiga[0]
+        return arms.active_unique_arm_id()
+
+    def run_ls(self):
+        self.conf.v = self.conf.v / 2
+        arms = Arms(self.conf.n, self.pull)
+        ls = LSBatch(self.conf, arms)
+        self.r = 1
+        while True:
+            if (self.r % 1000 == 0):
+                print '(r = %d)(ls)' % (self.r)
+            ls.pull_all(1)
+            self._delete_arms(arms)
+            if (ls.stop_condition()):
+                break
+            self.r += 1
+        return arms.means.argmax()
 
     def compute_time(self, means):
         """Compute the worst case running time. (The order of time)
@@ -333,96 +296,131 @@ class SuccessiveElimination(Cache):
         Args:
             means: The expect value of the arms. (Not empirical)
         """
-        delta = self._compute_mean_delta(means)
+        delta = means.max() - means
         ret = 0
         for el in delta:
             if not _is_zero(el):
-                ret += np.log(means.size / self.confidence / el) / (el * el)
+                ret += np.log(means.size / self.conf.v / el) / (el * el)
         return ret
 
 
-class MedianElimination(Cache):
+class MedianElimination(Algorithm):
     """Median elimination.
 
     """
-    def __init__(self, num_arms, epsilon, confidence, pull):
-        super(MedianElimination, self).__init__(num_arms, confidence, pull)
-        self.omiga = None
-        self.epsilon = epsilon
+    def __init__(self, conf, pull):
+        super(MedianElimination, self).__init__(conf, pull)
+        return
 
-    def _delete_arms(self):
-        median = np.median(self.means[self.omiga])
-        omiga_flag = np.ones(self.omiga.size, np.bool)
-        i = 0
-        while i < self.omiga.size:
-            if self.means[self.omiga[i]] < median:
-                omiga_flag[i] = False
-            i += 1
-        self.omiga = self.omiga[omiga_flag]
+    def _compare(self, arms, arm_id):
+        return (arms.means[arm_id] < self.median)
 
-    def run(self, omiga):
-        self.omiga = omiga.copy()
+    def _delete_arms(self, arms):
+        self.median = arms.active_means_median()
+        arms.delete(self._compare)
+        return
+
+    def run(self, eg_arms=None):
+        arms = Arms(self.conf.n, self.pull)
+        if (eg_arms is not None):
+            arms.set_active_arms(eg_arms)
         self.r = 1
-        epsilon = self.epsilon / 4.0
-        delta = self.confidence / 2.0
-        while self.omiga.size > 1:
+        epsilon = self.conf.e / 4.0
+        delta = self.conf.v / 2.0
+        while True:
+            if (arms.is_unique()):
+                break
             t = np.log(3.0 / delta) / (epsilon * epsilon / 4.0)
-            print 'me-el time: %d' % t
-            print 'me-el epsilon %f delta %f' % (epsilon, delta)
-            self._pull_arms(self.omiga, t)
-            self._compute_means(self.omiga)
-            self._delete_arms()
+            print '(t = %d)(me)' % t
+            arms.pull_all(t)
+            self._delete_arms(arms)
             epsilon *= 0.75
             delta /= 2.0
             self.r += 1
-        return self.omiga[0]
+        return arms.active_unique_arm_id()
+
+    def run_ls(self, eg_arms=None):
+        self.conf.v = self.conf.v / 2
+        arms = Arms(self.conf.n, self.pull)
+        if (eg_arms is not None):
+            arms.set_active_arms(eg_arms)
+        ls = LSBatch(self.conf, arms)
+        self.r = 1
+        epsilon = self.conf.e / 4.0
+        delta = self.conf.v / 2.0
+        while True:
+            t = np.log(3.0 / delta) / (epsilon * epsilon / 4.0)
+            print '(t = %d)(me_ls)' % t
+            ls.pull_all(t)
+            if (ls.stop_condition()):
+                break
+            self._delete_arms(arms)
+            epsilon *= 0.75
+            delta /= 2.0
+            self.r += 1
+        return arms.means.argmax()
+
+    def compute_time(self, means=None):
+        ret = (
+            self.conf.n * np.log(1 / self.conf.v)
+            / (self.conf.e * self.conf.e))
+        return ret
 
 
-class ExponentialGapElimination(Cache):
+class ExponentialGapElimination(Algorithm):
     """Exponential gap elimination algorithm
 
     """
-    def __init__(self, num_arms, confidence, pull):
-        super(ExponentialGapElimination, self).__init__(
-            num_arms, confidence, pull)
-        self.omiga = None
-        self.ref_id = 0
-
-    def _delete_arms(self, epsilon):
-        omiga_flag = np.ones(self.omiga.size, np.bool)
-        del_flag = False
-        i = 0
-        ref_mean = self.means[self.ref_id] - epsilon
-        while i < self.omiga.size:
-            if self.means[self.omiga[i]] < ref_mean:
-                omiga_flag[i] = False
-                del_flag = True
-            i += 1
-        if del_flag:
-            self.omiga = self.omiga[omiga_flag]
-
-    def _median_elimination(self, epsilon, delta):
-        me = MedianElimination(self.n, epsilon, delta, self.pull)
-        self.ref_id = me.run(self.omiga)
+    def __init__(self, conf, pull):
+        super(ExponentialGapElimination, self).__init__(conf, pull)
         return
 
+    def _compare(self, arms, arm_id):
+        return arms.means[arm_id] < self.ref_mean
+
+    def _delete_arms(self, arms, epsilon, delta):
+        ref_id = self._median_elimination(arms, epsilon / 2.0, delta)
+        self.ref_mean = arms.means[ref_id] - epsilon
+        arms.delete(self._compare)
+        return
+
+    def _median_elimination(self, arms, epsilon, delta):
+        conf = Configuration(self.conf.n, delta, epsilon, 0.1, 0.25)
+        me = MedianElimination(conf, self.pull)
+        return me.run_ls(arms)
+
     def run(self):
-        self.omiga = np.arange(0, self.n, 1, np.int)
+        arms = Arms(self.conf.n, self.pull)
         self.r = 1
         epsilon = 1 / 8.0
-        while self.omiga.size > 1:
-            delta = self.confidence / (50 * self.r * self.r * self.r)
-            t = np.ceil((2.0 / epsilon / epsilon) * np.log(2.0 / delta))
-            print 'ex-gap round: %d' % self.r
-            print 'ex-gap time: %d' % t
-            print 'ex-gap epsilon %f delta %f' % (epsilon, delta)
-            self._pull_arms(self.omiga, t)
-            self._compute_means(self.omiga)
-            self._median_elimination(epsilon / 2.0, delta)
-            self._delete_arms(epsilon)
+        while True:
+            if (arms.is_unique()):
+                break
+            delta = self.conf.v / (50.0 * self.r * self.r * self.r)
+            t = np.ceil((2.0 / (epsilon * epsilon)) * np.log(2.0 / delta))
+            print '(r = %d, t = %d)(eg)' % (self.r, t)
+            arms.pull_all(t)
+            self._delete_arms(arms, epsilon, delta)
             epsilon /= 2.0
             self.r += 1
-        return self.omiga[0]
+        return arms.active_arms[0]
+
+    def run_ls(self):
+        arms = Arms(self.conf.n, self.pull)
+        ls = LSBatch(self.conf, arms)
+        self.r = 1
+        epsilon = 1 / 8.0
+        while True:
+            delta = self.conf.v / (50.0 * self.r * self.r * self.r)
+            t = np.ceil((2.0 / (epsilon * epsilon)) * np.log(2.0 / delta))
+            print '(r = %d, t = %d)(eg_ls)' % (self.r, t)
+            ls.pull_all(t)
+            if (ls.stop_condition()):
+                break
+            self._delete_arms(arms, epsilon, delta)
+            epsilon /= 2.0
+            self.r += 1
+        return arms.means.argmax()
 
     def compute_time(self, means):
         """Compute the order of running time of exponential gap algorithm.
@@ -438,77 +436,154 @@ class ExponentialGapElimination(Cache):
         return ret
 
 
-class Naive(Cache):
-    """Naive algorithm.
+class LilBound(object):
+    """Documentation for LilBound
 
     """
-    def __init__(self, num_arms, confidence, pull):
-        super(Naive, self).__init__(num_arms, confidence, pull)
+    def __init__(self, epsilon, confidence, beta=1.66, sigma=0.25):
+        super(LilBound, self).__init__()
+        self.epsilon = epsilon
+        self.confidence = confidence
+        self.beta = beta
+        self.sigma = sigma
+        self.b = FloatList()
+
+        self.e_1 = self.epsilon + 1
+        self.c = self._compute_c()
+        self.delta = self._compute_delta()
+        self.lamda = self._compute_lamda()
+
+        self.c1 = (1 + self.beta) * (1 + np.sqrt(self.epsilon))
+        self.c2 = 2 * self.sigma * self.sigma * self.e_1
         return
 
-    def run(self, epsilon):
-        t = 4.0 * np.log(2 * self.n / self.confidence) / (epsilon * epsilon)
-        omiga = np.arange(0, self.n, 1, np.int)
-        self._pull_arms(omiga, t)
-        self._compute_means(omiga)
-        return self.means.argmax()
+    def _compute_c(self):
+        log_value = 1 / np.log(self.e_1)
+        pow_value = np.power(log_value, self.e_1)
+        return (2 + self.epsilon) * pow_value / self.epsilon
+
+    def _compute_lamda(self):
+        return (2 + self.beta) / self.beta
+
+    def lilucb_stop_condition(self, sum_t, max_t):
+        return (max_t < 1 + self.lamda * (sum_t - max_t))
+
+    def _compute_delta(self):
+        square_delta = (np.sqrt(self.confidence + 0.25) - 0.5)
+        return square_delta * square_delta / self.c
+
+    def _compute_b(self, t):
+        return (self.c1 *
+                np.sqrt(self.c2 *
+                        np.log(np.log(self.e_1*t)/self.delta) / t))
+
+    def compute_b(self, t):
+        ret = 0
+        if t > self.b.size:
+            ret = self._compute_b(t)
+            self.b.append(ret)
+        else:
+            ret = self.b[t - 1]
+        return ret
+
+    def compute_time(self, means):
+        gama_square = (
+            (2 + self.beta) * (1 + np.sqrt(self.epsilon)) * self.sigma)
+        gama = (2 * gama_square * gama_square * self.e_1)
+        means_delta = np.amax(means) - means
+        ret = means.size
+        for el in means_delta:
+            if not _is_zero(el):
+                delta_square = 1 / (el * el)
+                ret += 5 * gama * delta_square * np.log(np.e / self.delta)
+                log_v = np.log(gama * self.e_1 * delta_square / self.delta)
+                if log_v > 1:
+                    ret += gama * np.log(2 * log_v) * delta_square
+                else:
+                    ret += gama * np.log(2) * delta_square
+        return ret
 
 
-class UpperConfidenceBound(Cache):
+class UCB(object):
+    """Documentation for UCB
+
+    """
+    def __init__(self, conf):
+        super(UCB, self).__init__()
+        self.conf = conf
+        self._ucb = ds.SortedList()
+        return
+
+    def set(self, arm_id, val):
+        self.ucb.pop()
+        self.ucb_node[arm_id].mean = val
+        self.ucb[self.ucb_node[arm_id]] = 1
+        return self.ucb.min().arm_id
+
+    def init(self, means):
+        i = 0
+        for el in means:
+            self.ucb_node[i].mean = el
+            i += 1
+        for el in self.ucb_node:
+            self.ucb[el] = 1
+        return self.ucb.min().arm_id
+
+    def show(self):
+        ll = []
+        for el in self.ucb_node:
+            ll.append(el.mean)
+        print ll
+        return
+
+
+class UpperConfidenceBound(Algorithm):
     """Upper confidence bound algorithm.
     """
-    def __init__(self, num_arms, confidence, pull):
-        super(UpperConfidenceBound, self).__init__(num_arms, confidence, pull)
-        self.epsilon = 0.01
-        self.beta = 1
+    def __init__(self, conf, pull):
+        super(UpperConfidenceBound, self).__init__(conf, pull)
         self.lamda = self.compute_lamda(self.beta)
         self.ucb = np.zeros(self.n, _float_type)
         return
 
-    def _compute_lil_bound(self, arm_id):
-        self.ucb[arm_id] = (
-            self.means[arm_id] +
-            (1 + self.beta) * self.compute_lil_bound(
-                self.n, self.t[arm_id], self.epsilon, self.delta))
-
-    def _compute_lil_delta(self):
-        eplus_one = 1 + self.epsilon
-        log_value = 1 / np.log(eplus_one)
-        pow_value = np.power(log_value, eplus_one)
-        c = (2 + self.epsilon) * pow_value / self.epsilon
-        square_delta = (np.sqrt(self.confidence + 0.25) - 0.5)
-        self.delta = square_delta * square_delta / c
-        return self.delta
-
     def run(self):
-        self.delta = self._compute_lil_delta()
-        omiga = np.arange(0, self.n, 1, np.int)
-        self._pull_arms(omiga, 1)
-        self.sum_t = self.n
-        self.max_t = 1
-        self._compute_means(omiga)
+        lilb = LilBound(self.epsilon, self.confidence, self.beta)
+        arms = Arms(self.n, self.pull)
+        ucb = UCB(self.n, self.confidence, self.epsilon, self.beta)
+        arms.pull_all(1)
+        sum_t = self.n
+        max_t_arm_id = 1
+        means = np.zeros(self.n, _float_type)
         for i in range(0, self.n, 1):
-            self._compute_lil_bound(i)
-        self.r = 0
-        while not self.lil_stop_condition(self.lamda):
-            arm_id = self.ucb.argmax()
-            self._pull_one_arm(arm_id)
-            self._compute_one_mean(arm_id)
-            self._compute_lil_bound(arm_id)
+            means[i] = arms.means[i] + lilb.compute_b(1)
+        max_arm_id = ucb.init(means)
+        while lilb.lilucb_stop_condition(sum_t, arms.t[max_t_arm_id]):
+            arms.pull_one(max_arm_id)
+            sum_t += 1
+            if arms.t[max_t_arm_id] < arms.t[max_arm_id]:
+                max_t_arm_id = max_arm_id
+            max_arm_id = ucb.set(
+                max_arm_id,
+                (arms.means[max_arm_id] +
+                 lilb.compute_b(arms.t[max_arm_id])))
             self.r += 1
-            if self.r % 10000 == 0:
-                print self.means
-                print self.t
-        print self.t
-        return self.t.argmax()
+        return max_arm_id
+
+    def run_ls(self):
+        LilStopCondition(self.n, self.epsilon)
+        return
+
+    def compute_time(self, means):
+        lilb = LilBound(self.epsilon, self.confidence, self.beta)
+        return lilb.compute_time(means)
 
 
-class LUCB(Cache):
+class LUCB(Algorithm):
     """Documentation for LUCB
 
     """
-    def __init__(self, num_arms, confidence, pull):
-        super(LUCB, self).__init__(num_arms, confidence, pull)
+    def __init__(self, conf, pull):
+        super(LUCB, self).__init__(conf, pull)
         return
 
     def run(self):
@@ -516,18 +591,4 @@ class LUCB(Cache):
 
 
 def test():
-    nd = NormalData(_means, _variances)
-    print nd.means
-    print nd.means.argmax()
-    # exponential_gap_elimination(nd.n, nd.pull)
-    # print nd.data[:nd.data_max]
-    # a = SuccessiveElimination(nd.n, _nu, nd.pull)
-    # a = ExponentialGapElimination(nd.n, _nu, nd.pull)
-    # a = Naive(nd.n, _nu, nd.pull)
-    _nu = 0.1
-    a = UpperConfidenceBound(nd.n, _nu, nd.pull)
-    print a.run()
-    print a.compute_time(nd.means)
-    print nd.data_max
-    # print nd.data_max / a.compute_time(nd.means)
     return

@@ -1,31 +1,42 @@
 #!/usr/bin/python
 
-# import numpy as np
-# import matplotlib.pyplot as plt
+import experiment
 
-# import sys
-# import timeit
 
-import best_arm_identification as bai
+def test(id):
+    print id
+    return
 
-bai.test()
+
+print 'Experiment start...'
+experiment.test()
 
 
 class A(object):
 
+    abc = 200
+
     def __init__(self):
+        self.aa()
         return
 
     def __str__(self):
         return "str_string"
 
+    def __getattr__(self, name):
+        if (name == 'ssbbsdsf'):
+            return 'good'
+        else:
+            raise AttributeError(self, name)
+
     @staticmethod
     def testcm(a):
         print a
 
+    def aa(self):
+        print 'aa'
+        return
 
-a = A()
-A.testcm(100)
 
 print 'Over.'
 #  print bai.data
