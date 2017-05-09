@@ -25,7 +25,7 @@ class Configuration(object):
         self.e = epsilon
         self.b = beta
         self.s = sigma
-        return
+        return None
 
     def __str__(self):
         return ("n = %d v = %f e = %f b = %f s = %f" %
@@ -42,8 +42,8 @@ class Arms(object):
         self.active_arms = np.arange(0, self.n, 1, np.int)
         self._pull = pull
         self.t = np.zeros(self.n, np.int)
-        self.sums = np.zeros(self.n, _float_type)
         self.means = np.zeros(self.n, _float_type)
+        return None
 
     def __getitem__(self, index):
         return self.active_arms[index]
@@ -53,7 +53,7 @@ class Arms(object):
 
     def set_active_arms(self, arms):
         self.active_arms = arms.active_arms.copy()
-        return
+        return None
 
     def delete(self, compare):
         i = 0
@@ -68,28 +68,21 @@ class Arms(object):
             self.active_arms = self.active_arms[flag]
         return None
 
-    def pull(self, arm_id):
-        self.sums[arm_id] += self._pull(arm_id)
-        self.t[arm_id] += 1
-        self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+    def pull(self, arm_id, t):
+        self.t[arm_id] += t
+        self.means[arm_id] = self._pull(arm_id, t)
         return
 
-    def pull_all(self, t=1):
-        while t > 0:
-            for arm_id in self.active_arms:
-                self.sums[arm_id] += self._pull(arm_id)
-                self.t[arm_id] += 1
-            t -= 1
+    def pull_all(self, t):
         for arm_id in self.active_arms:
-            self.means[arm_id] = self.sums[arm_id] / self.t[arm_id]
+            self.pull(arm_id, t)
         return
 
     def init_for_lil_stop_condition(self):
         self.means = ds.SortedList()
         for i in range(0, self.n, 1):
-            self.sums[i] = self._pull(i)
             self.t[i] = 1
-            self.means.append(self.sums[i] / self.t[i])
+            self.means.append(self._pull(i, 1))
         return
 
     def arm_id_of_max_active_mean(self):
@@ -105,13 +98,7 @@ class Arms(object):
     def active_unique_arm_id(self):
         return self.active_arms[0]
 
-
-class FastArms(object):
-    """Documentation for FastArms
-
-    """
-    def __init__(self):
-        super(FastArms, self).__init__()
+    def init_for_experiment(self):
         return None
 
 
@@ -149,15 +136,16 @@ class LSBatch(LilStopCondition):
     """Documentation for LSBatch
 
     """
-    def __init__(self, conf, pull):
-        super(LSBatch, self).__init__(conf, pull)
-        return
+    def __init__(self, conf, arms):
+        super(LSBatch, self).__init__(conf, arms)
+        return None
 
     def pull_all(self, t=1):
         self._arms.pull_all(t)
         b = self._compute_b(self._arms.t[self._arms.active_arms[0]])
         i = 0
         size = self._arms.active_arms.size
+        # Find the second largest element can be faster
         max = self._arms.means[self._arms.active_arms[0]]
         smax = self._arms.means[self._arms.active_arms[1]]
         if (max < smax):
@@ -171,19 +159,60 @@ class LSBatch(LilStopCondition):
                 smax = el
         self.lcb_of_max_arms = max - b
         self.max_rest_ucb = smax + b
-        return
+        return None
 
 
-class LSSerial(object):
+class LSSerial(LilStopCondition):
     """Documentation for LSS
 
     """
-    def __init__(self):
-        super(LSSerial, self).__init__()
-        return
+    def __init__(self, conf, arms):
+        super(LSSerial, self).__init__(conf, arms)
+        self._b = ds.CachedList(self._compute_b)
+        self._b.start_from_index_one()
+        self._ucb = ds.SortedList()
+        return None
 
-    def pull(self):
-        return
+    def _raw_pull(self, arm_id):
+        self._arms.pull(arm_id, 1)
+        self._ucb[arm_id] = (
+            self._arms.means[arm_id] + self._b[self._arms.t[arm_id]])
+        return None
+
+    def init(self):
+        self._arms.init_for_lil_stop_condition()
+        for i in range(0, self.conf.n, 1):
+            self._ucb.append(self._arms.means[i] + self._b[1])
+        max_mean_id = self._arms.means.argmax()
+        max_rest_ucb_id = self._ucb.argmax_except_arms(max_mean_id)
+        self.lcb_of_max_arms = (
+            self._arms.means[max_mean_id] - self._b[self._arms.t[max_mean_id]])
+        self.max_rest_ucb = self._ucb[max_rest_ucb_id]
+        return ([max_mean_id, max_rest_ucb_id])
+
+    def pull(self, max_mean_id=None, max_rest_ucb_id=None):
+        if (max_mean_id is not None):
+            self._raw_pull(max_mean_id)
+        self._raw_pull(max_rest_ucb_id)
+        max_mean_id = self._arms.means.argmax()
+        max_rest_ucb_id = self._ucb.argmax_except_arms(max_mean_id)
+        self.lcb_of_max_arms = (
+            self._arms.means[max_mean_id] - self._b[self._arms.t[max_mean_id]])
+        self.max_rest_ucb = self._ucb[max_rest_ucb_id]
+        return [max_mean_id, max_rest_ucb_id]
+
+    def init_for_ucb(self):
+        self._us = UCBStopCondition(self.conf, self.pull)
+        self.init()
+        for i in range(0, self.conf.n, 1):
+            self._us._ucb.append(self._arms.means[i] + self._us._b[1])
+        return self._us._ucb.argmax()
+
+    def pull_for_ucb(self, arm_id):
+        self.pull(None, arm_id)
+        self._us._ucb[arm_id] = (
+            self._arms.means[arm_id] + self._us._b[self._arms.t[arm_id]])
+        return self._us._ucb.argmax()
 
 
 class Algorithm(object):
@@ -195,7 +224,7 @@ class Algorithm(object):
         self.conf = conf
         self.pull = pull
 
-    def compute_tie(self, means):
+    def compute_time(self, means):
         """Compute the order of time in theory."""
         pass
 
@@ -208,25 +237,69 @@ class Naive(Algorithm):
         super(Naive, self).__init__(conf, pull)
         return
 
-    def run(self):
-        t = (4.0 * np.log(2 * self.conf.n / self.conf.v)
-             / (self.conf.e * self.conf.e))
+    def _compute_time(self):
+        return np.int(np.ceil(
+            4.0 * np.log(2 * self.conf.n / self.conf.v)
+            / (self.conf.e * self.conf.e)))
+
+    def _init(self, arms):
+        self.r = self._compute_time()
+        return None
+
+    def _next(self, arms):
+        if (self.r > 0):
+            return True
+        else:
+            return False
+        return None
+
+    def run(self, num_pulls=None):
+        print 'Start Naive ...'
         arms = Arms(self.conf.n, self.pull)
-        arms.pull_all(t)
+        self._init(arms)
+        if (num_pulls is None):
+            print 'Start to pull each arms(%d)' % (self.r)
+            arms.pull_all(self.r)
+        else:
+            while True:
+                if self._next():
+                    break
+                arms.pull_all(1)
+                self.r -= 1
+        print 'End Naive.'
         return arms.means.argmax()
 
     def run_ls(self):
+        print 'Start Naive(LS)...'
+        self.conf.v /= 2
         arms = Arms(self.conf.n, self.pull)
         ls = LSBatch(self.conf, arms)
         self.r = 1
         while True:
             if self.r % 1000 == 0:
-                print '(r = %d)(ls)' % (self.r)
+                print '(r = %d %f %f %f)' % (
+                    self.r,
+                    ls.lcb_of_max_arms,
+                    ls.max_rest_ucb,
+                    ls._compute_b(self.r))
             ls.pull_all()
             if (ls.stop_condition()):
                 break
             self.r += 1
+        print 'End Naive(LS)'
         return arms.means.argmax()
+
+    def run_n(self, n):
+        arms = Arms(self.conf.n, self.pull)
+        self.r = 0
+        while True:
+            if self.r > n:
+                break
+            arms.pull_all(1)
+        return None
+
+    def run_ls_n(self, n):
+        return None
 
 
 class SuccessiveElimination(Algorithm):
@@ -259,34 +332,45 @@ class SuccessiveElimination(Algorithm):
         self.compute_threshold()
         return arms.delete(self._compare)
 
+    def _next(self):
+        return None
+
     def run(self):
-        """Run the successive algorithm.
-        """
+        print 'Start SuccessiveElimination...'
         arms = Arms(self.conf.n, self.pull)
         self.r = 1
         while True:
             if (arms.is_unique()):
                 break
-            if (self.r % 10000 == 0):
-                print '(r = %d)' % (self.r)
+            if (self.r % 1000 == 0):
+                print '(r = %d %f %d)' % (
+                    self.r, self.threshold, arms.active_arms.size)
             arms.pull_all(1)
             self._delete_arms(arms)
             self.r += 1
+        print 'End SuccessiveElimination'
         return arms.active_unique_arm_id()
 
     def run_ls(self):
+        print 'Start SuccessiveElimination(LS)...'
         self.conf.v = self.conf.v / 2
         arms = Arms(self.conf.n, self.pull)
         ls = LSBatch(self.conf, arms)
         self.r = 1
         while True:
             if (self.r % 1000 == 0):
-                print '(r = %d)(ls)' % (self.r)
+                print '(r = %d %d %f %f %f)' % (
+                    self.r,
+                    arms.active_arms.size,
+                    ls.lcb_of_max_arms,
+                    ls.max_rest_ucb,
+                    ls._compute_b(self.r))
             ls.pull_all(1)
             self._delete_arms(arms)
             if (ls.stop_condition()):
                 break
             self.r += 1
+        print 'End SuccessiveElimination(LS).'
         return arms.means.argmax()
 
     def compute_time(self, means):
@@ -321,6 +405,7 @@ class MedianElimination(Algorithm):
         return
 
     def run(self, eg_arms=None):
+        print 'Start MedianElimination...'
         arms = Arms(self.conf.n, self.pull)
         if (eg_arms is not None):
             arms.set_active_arms(eg_arms)
@@ -330,16 +415,20 @@ class MedianElimination(Algorithm):
         while True:
             if (arms.is_unique()):
                 break
-            t = np.log(3.0 / delta) / (epsilon * epsilon / 4.0)
-            print '(t = %d)(me)' % t
+            t = np.int(np.ceil(
+                np.log(3.0 / delta) / (epsilon * epsilon / 4.0)))
+            print '(t = %d %d %f %f)' % (
+                t, arms.active_arms.size, epsilon, delta)
             arms.pull_all(t)
             self._delete_arms(arms)
             epsilon *= 0.75
             delta /= 2.0
             self.r += 1
+        print 'End MedianElimination.'
         return arms.active_unique_arm_id()
 
     def run_ls(self, eg_arms=None):
+        print 'Start MedianElimination(LS)...'
         self.conf.v = self.conf.v / 2
         arms = Arms(self.conf.n, self.pull)
         if (eg_arms is not None):
@@ -349,8 +438,10 @@ class MedianElimination(Algorithm):
         epsilon = self.conf.e / 4.0
         delta = self.conf.v / 2.0
         while True:
-            t = np.log(3.0 / delta) / (epsilon * epsilon / 4.0)
-            print '(t = %d)(me_ls)' % t
+            t = np.int(np.ceil(
+                np.log(3.0 / delta) / (epsilon * epsilon / 4.0)))
+            print '(t = %d %d %f %f)' % (
+                t, arms.active_arms.size, epsilon, delta)
             ls.pull_all(t)
             if (ls.stop_condition()):
                 break
@@ -358,6 +449,7 @@ class MedianElimination(Algorithm):
             epsilon *= 0.75
             delta /= 2.0
             self.r += 1
+        print 'End MedianElimination(LS).'
         return arms.means.argmax()
 
     def compute_time(self, means=None):
@@ -390,6 +482,7 @@ class ExponentialGapElimination(Algorithm):
         return me.run_ls(arms)
 
     def run(self):
+        print 'Start ExponentialGapElimination...'
         arms = Arms(self.conf.n, self.pull)
         self.r = 1
         epsilon = 1 / 8.0
@@ -397,29 +490,35 @@ class ExponentialGapElimination(Algorithm):
             if (arms.is_unique()):
                 break
             delta = self.conf.v / (50.0 * self.r * self.r * self.r)
-            t = np.ceil((2.0 / (epsilon * epsilon)) * np.log(2.0 / delta))
-            print '(r = %d, t = %d)(eg)' % (self.r, t)
+            t = np.int(np.ceil(
+                (2.0 / (epsilon * epsilon)) * np.log(2.0 / delta)))
+            print '(r = %d %d %f)' % (self.r, t, delta)
             arms.pull_all(t)
             self._delete_arms(arms, epsilon, delta)
             epsilon /= 2.0
             self.r += 1
+        print 'End ExponentialGapElimination.'
         return arms.active_arms[0]
 
     def run_ls(self):
+        print 'Start ExponentialGapElimination(LS)...'
+        self.conf.v /= 2
         arms = Arms(self.conf.n, self.pull)
         ls = LSBatch(self.conf, arms)
         self.r = 1
         epsilon = 1 / 8.0
         while True:
             delta = self.conf.v / (50.0 * self.r * self.r * self.r)
-            t = np.ceil((2.0 / (epsilon * epsilon)) * np.log(2.0 / delta))
-            print '(r = %d, t = %d)(eg_ls)' % (self.r, t)
+            t = np.int(np.ceil(
+                (2.0 / (epsilon * epsilon)) * np.log(2.0 / delta)))
+            print '(r = %d %d %f)' % (self.r, t, delta)
             ls.pull_all(t)
             if (ls.stop_condition()):
                 break
             self._delete_arms(arms, epsilon, delta)
             epsilon /= 2.0
             self.r += 1
+        print 'End ExponentialGapElimination(LS).'
         return arms.means.argmax()
 
     def compute_time(self, means):
@@ -436,55 +535,57 @@ class ExponentialGapElimination(Algorithm):
         return ret
 
 
-class LilBound(object):
+class UCBStopCondition(object):
     """Documentation for LilBound
 
     """
-    def __init__(self, epsilon, confidence, beta=1.66, sigma=0.25):
-        super(LilBound, self).__init__()
-        self.epsilon = epsilon
-        self.confidence = confidence
-        self.beta = beta
-        self.sigma = sigma
-        self.b = FloatList()
+    def __init__(self, conf, arms):
+        super(UCBStopCondition, self).__init__()
+        self.conf = conf
+        self._arms = arms
+        self._b = ds.CachedList(self._compute_b)
+        self._b.start_from_index_one()
+        self._ucb = ds.SortedList()
+        self._max_t = 0
+        self._sum_t = 0
 
-        self.e_1 = self.epsilon + 1
-        self.c = self._compute_c()
-        self.delta = self._compute_delta()
-        self.lamda = self._compute_lamda()
+        self.e_1 = self.conf.e + 1
+        self._c = (
+            (2 + self.conf.e)
+            * np.power((1 / np.log(self.e_1)), self.e_1)
+            / self.conf.e)
+        self._lamda = np.power((2 + self.conf.b) / self.conf.b, 2)
+        self._delta = (
+            np.power(np.sqrt(self.conf.v + 0.25) - 0.5, 2) / self._c)
 
-        self.c1 = (1 + self.beta) * (1 + np.sqrt(self.epsilon))
-        self.c2 = 2 * self.sigma * self.sigma * self.e_1
-        return
+        self._c1 = (1 + self.conf.b) * (1 + np.sqrt(self.conf.e))
+        self._c2 = 2 * np.power(self.conf.s, 2) * self.e_1
+        return None
 
-    def _compute_c(self):
-        log_value = 1 / np.log(self.e_1)
-        pow_value = np.power(log_value, self.e_1)
-        return (2 + self.epsilon) * pow_value / self.epsilon
-
-    def _compute_lamda(self):
-        return (2 + self.beta) / self.beta
-
-    def lilucb_stop_condition(self, sum_t, max_t):
-        return (max_t < 1 + self.lamda * (sum_t - max_t))
-
-    def _compute_delta(self):
-        square_delta = (np.sqrt(self.confidence + 0.25) - 0.5)
-        return square_delta * square_delta / self.c
+    def stop_condition(self):
+        return (self._max_t >= 1 + self._lamda * (self._sum_t - self._max_t))
 
     def _compute_b(self, t):
-        return (self.c1 *
-                np.sqrt(self.c2 *
-                        np.log(np.log(self.e_1*t)/self.delta) / t))
+        return (self._c1 *
+                np.sqrt(self._c2 *
+                        np.log(np.log(self.e_1 * t) / self._delta) / t))
 
-    def compute_b(self, t):
-        ret = 0
-        if t > self.b.size:
-            ret = self._compute_b(t)
-            self.b.append(ret)
-        else:
-            ret = self.b[t - 1]
-        return ret
+    def init(self):
+        for i in range(0, self.conf.n, 1):
+            self._arms.pull(i, 1)
+            self._sum_t += 1
+            self._ucb.append(self._arms.means[i] + self._b[1])
+        self._max_t = 1
+        return self._ucb.argmax()
+
+    def pull(self, arm_id):
+        self._arms.pull(arm_id, 1)
+        self._ucb[arm_id] = (
+            self._arms.means[arm_id] + self._b[self._arms.t[arm_id]])
+        self._sum_t += 1
+        if (self._arms.t[arm_id] > self._max_t):
+            self._max_t = self._arms.t[arm_id]
+        return self._ucb.argmax()
 
     def compute_time(self, means):
         gama_square = (
@@ -504,78 +605,51 @@ class LilBound(object):
         return ret
 
 
-class UCB(object):
-    """Documentation for UCB
-
-    """
-    def __init__(self, conf):
-        super(UCB, self).__init__()
-        self.conf = conf
-        self._ucb = ds.SortedList()
-        return
-
-    def set(self, arm_id, val):
-        self.ucb.pop()
-        self.ucb_node[arm_id].mean = val
-        self.ucb[self.ucb_node[arm_id]] = 1
-        return self.ucb.min().arm_id
-
-    def init(self, means):
-        i = 0
-        for el in means:
-            self.ucb_node[i].mean = el
-            i += 1
-        for el in self.ucb_node:
-            self.ucb[el] = 1
-        return self.ucb.min().arm_id
-
-    def show(self):
-        ll = []
-        for el in self.ucb_node:
-            ll.append(el.mean)
-        print ll
-        return
-
-
 class UpperConfidenceBound(Algorithm):
-    """Upper confidence bound algorithm.
+    """Upper confidence bound algorithm.int 
     """
     def __init__(self, conf, pull):
         super(UpperConfidenceBound, self).__init__(conf, pull)
-        self.lamda = self.compute_lamda(self.beta)
-        self.ucb = np.zeros(self.n, _float_type)
-        return
+        return None
 
     def run(self):
-        lilb = LilBound(self.epsilon, self.confidence, self.beta)
-        arms = Arms(self.n, self.pull)
-        ucb = UCB(self.n, self.confidence, self.epsilon, self.beta)
-        arms.pull_all(1)
-        sum_t = self.n
-        max_t_arm_id = 1
-        means = np.zeros(self.n, _float_type)
-        for i in range(0, self.n, 1):
-            means[i] = arms.means[i] + lilb.compute_b(1)
-        max_arm_id = ucb.init(means)
-        while lilb.lilucb_stop_condition(sum_t, arms.t[max_t_arm_id]):
-            arms.pull_one(max_arm_id)
-            sum_t += 1
-            if arms.t[max_t_arm_id] < arms.t[max_arm_id]:
-                max_t_arm_id = max_arm_id
-            max_arm_id = ucb.set(
-                max_arm_id,
-                (arms.means[max_arm_id] +
-                 lilb.compute_b(arms.t[max_arm_id])))
+        print 'Start UCB...'
+        arms = Arms(self.conf.n, self.pull)
+        us = UCBStopCondition(self.conf, arms)
+        arm_id = us.init()
+        self.r = 1
+        while True:
+            if us.stop_condition():
+                break
+            arm_id = us.pull(arm_id)
             self.r += 1
-        return max_arm_id
+            if (self.r % 1000 == 0):
+                print '(r = %d %f)' % (self.r, us._b[us._b.size - 1])
+        print 'End UCB.'
+        return arm_id
 
     def run_ls(self):
-        LilStopCondition(self.n, self.epsilon)
-        return
+        print 'Start UCB(LS)...'
+        self.conf.v /= 2
+        arms = Arms(self.conf.n, self.pull)
+        ls = LSSerial(self.conf, arms)
+        arm_id = ls.init_for_ucb()
+        self.r = 1
+        while True:
+            if ls.stop_condition():
+                break
+            arm_id = ls.pull_for_ucb(arm_id)
+            self.r += 1
+            if (self.r % 1000 == 0):
+                print '(r = %d %f %f)' % (
+                    self.r,
+                    ls.lcb_of_max_arms,
+                    ls.max_rest_ucb)
+        print 'End UCB(LS).'
+        return arm_id
 
     def compute_time(self, means):
-        lilb = LilBound(self.epsilon, self.confidence, self.beta)
-        return lilb.compute_time(means)
+        return None
 
 
 class LUCB(Algorithm):
@@ -587,7 +661,24 @@ class LUCB(Algorithm):
         return
 
     def run(self):
-        return
+        print 'Start LUCB...'
+        arms = Arms(self.conf.n, self.pull)
+        ls = LSSerial(self.conf, arms)
+        self.r = 1
+        [max_mean_id, max_rest_ucb_id] = ls.init()
+        while True:
+            if (ls.stop_condition()):
+                break
+            [max_mean_id, max_rest_ucb_id] = (
+                ls.pull(max_mean_id, max_rest_ucb_id))
+            self.r += 1
+            if (self.r % 1000 == 0):
+                print '(r = %d %f %f)' % (
+                    self.r,
+                    ls.lcb_of_max_arms,
+                    ls.max_rest_ucb)
+        print 'End LUCB'
+        return arms.means.argmax()
 
 
 def test():

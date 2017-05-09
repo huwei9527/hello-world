@@ -18,7 +18,6 @@ class FloatList(object):
         return
 
     def _malloc(self):
-        print 'MALLOC %d' % self._data.size
         self._data.resize(self._data.size + self._step)
         return
 
@@ -60,11 +59,51 @@ class CachedList(object):
             return self._b.size
         else:
             raise AttributeError(name)
-        return
+        return None
 
     def append(self, value):
         self._b.append(value)
-        return
+        return None
+
+    def start_from_index_one(self):
+        self._b.append(0)
+        return None
+
+
+class IndexList(object):
+    """Documentation for IndexList
+
+    """
+    def __init__(self):
+        super(IndexList, self).__init__()
+        self._step = 10000
+        self._index = np.zeros(self._step, _float_type)
+        self._data = np.zeros(self._step, _float_type)
+        self._size = 0
+        return None
+
+    def __getattr__(self, name):
+        if (name == 'size'):
+            return self._size
+        else:
+            raise AttributeError(name)
+        return None
+
+    def __getitem__(self, index):
+        return (self._index[index], self._data[index])
+
+    def _malloc(self):
+        self._index = self._index.resize(self._index.size + self._step)
+        self._data = self._data.resize(self._index.size)
+        return None
+
+    def append(self, index, data):
+        if (self._size == self._index.size):
+            self._malloc()
+        self._index[self._size] = index
+        self._data[self._size] = data
+        self._size += 1
+        return None
 
 
 class Data(object):
@@ -142,7 +181,10 @@ class SortedListNode(object):
         if (self.id == obj.id):
             return 0
         elif np.isclose(self.val, obj.val, precision):
-            return 0
+            if (self.id < obj.id):
+                return self._small
+            else:
+                return self._big
         elif self.val > obj.val:
             return self._big
         else:

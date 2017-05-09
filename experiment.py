@@ -1,8 +1,9 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import best_arm_identification as bai
 import data_structure as ds
 import time
+import os
+import shutil
 
 
 def main():
@@ -14,72 +15,6 @@ if __name__ == '__main__':
     main()
 
 _float_type = ds._float_type
-
-
-class NormalData(object):
-    """Normal data"""
-
-    def __init__(self, means, variances):
-        """Init function"""
-        self.means = means.copy()
-        self.vars = variances.copy()
-        self.data = ds.Data()
-        return
-
-    def __str__(self):
-        return (("means: %s\n"
-                 "vars: %s\n"
-                 "n = %d, data_size = %d, max_id = %d") %
-                (self.means,
-                 self.vars,
-                 self.means.size, self.data.size, self.means.argmax()))
-
-    def __getattr__(self, name):
-        if (name == 'size'):
-            return self.data.size
-        elif (name == 'n'):
-            return self.means.size
-        else:
-            raise AttributeError(name)
-
-    def pull(self, arm_id, t):
-        assert arm_id < self.n
-        # non-central normal distribution: var * n + mu
-        ret = np.random.normal(self.means[arm_id], self.vars[arm_id])
-        self.data.append(arm_id, ret)
-        return ret
-
-    def save(self, fname='NormalData'):
-        np.savez(
-            fname,
-            means=self.means,
-            vars=self.vars,
-            id=self.data.arm_id_vector(),
-            val=self.data.data_vector())
-        return
-
-    def load(self, fname='NormalData.npz'):
-        with np.load(fname) as d:
-            self.means = d['means']
-            self.variances = d['vars']
-            self.data.set(d['id'], d['val'])
-
-    def hist(self, arm_id):
-        a = np.bincount(self.data.arm_id_vector())
-        print a
-        b = np.zeros(a[arm_id], _float_type)
-        iarm = 0
-        idata = 0
-        size = self.data.size
-        while idata < size:
-            if self.data.arm_id[idata] == arm_id:
-                b[iarm] = self.data.data[idata]
-                iarm += 1
-            idata += 1
-        plt.hist(b, bins=np.ceil(a[arm_id] / 10.0))
-        plt.show()
-
-
 DATA_DIR = 'data'
 DEFAULT_DIR = 'default'
 
@@ -271,7 +206,12 @@ class DataBlock(object):
     def _append_one(self):
         return self._raw_append_block(self._means.size + self._conf.ALLOC_SIZE)
 
+    def total_pulls(self):
+        return (self._block_id * self._conf.BLOCK_SIZE + self.size + 1)
+
     def pull(self, t):
+        if (t == 1):
+            return self.pull_once()
         n = self.size + t
         if (n < self._means.size):
             self.size = n
@@ -327,6 +267,13 @@ class PreBuildData(object):
         self.data_set = data_set
         self.conf = None
         self._data = None
+        self.load()
+
+        max_mean = self.conf.means.max()
+        self.h1 = 0.0
+        for el in (max_mean - self.conf.means):
+            if not (np.isclose(el, 0, ds.precision)):
+                self.h1 += 1.0 / (el * el)
         return None
 
     @classmethod
@@ -339,11 +286,45 @@ class PreBuildData(object):
         return None
 
     @classmethod
-    def random(cls, size, data_set=DEFAULT_DIR):
-        means = np.random.uniform(0, 1.0, size)
+    def random(cls, size, gap=0.1, num=1, data_set=DEFAULT_DIR):
+        fn = 'data'
+        if not (os.path.exists(fn)):
+            os.mkdir(fn)
+        fn = fn + '/' + data_set
+        if not (os.path.exists(fn)):
+            os.mkdir(fn)
+        else:
+            shutil.rmtree(fn)
+            os.mkdir(fn)
+        means = np.zeros(size, _float_type)
+        means[0] = 0.9999
+        for i in range(1, num+1, 1):
+            means[i] = means[0] - gap - 0.0001 * (i - 1)
+        for i in range(num + 1, means.size, 1):
+            means[i] = np.random.uniform(0, means[1], 1)
         sigmas = np.random.uniform(0, 1.0, size)
+        means = np.random.permutation(means)
         PreBuildData.build(size, means, sigmas, data_set)
         return None
+
+    @classmethod
+    def sample(cls, gap, data_set=DEFAULT_DIR):
+        means = np.arange(0, 0.99, gap, dtype=_float_type)
+        sigmas = np.ones(means.size, _float_type) * 0.25
+        PreBuildData.build(means.size, means, sigmas, data_set)
+        return None
+
+    @classmethod
+    def sample_1(cls, data_set='sample_1'):
+        return PreBuildData.sample(0.2, data_set)
+
+    @classmethod
+    def sample_2(cls, data_set='sample_2'):
+        return PreBuildData.sample(0.1, data_set)
+
+    @classmethod
+    def sample_3(cls, data_set='sample_3'):
+        return PreBuildData.sample(0.02, data_set)
 
     def load(self):
         self.conf = Config(self.data_set)
@@ -355,6 +336,12 @@ class PreBuildData(object):
             self._data.append(block)
         return
 
+    def total_pulls(self):
+        ret = 0
+        for i in range(0, self.conf.size, 1):
+            ret += self._data[i].total_pulls()
+        return ret
+
     def pull(self, arm_id, t):
         return self._data[arm_id].pull(t)
 
@@ -362,54 +349,87 @@ class PreBuildData(object):
         return self._data[arm_id].pull_once()
 
 
-def test():
-    # PreBuildData.random(100, 'random')
-    pbd = PreBuildData('random')
-    pbd.load()
-    print pbd.pull(88, 134)
-    print pbd.conf[88]
-    means_switch = 1
-    random_switch = 0
-    test_switch = 1
-    alg_switch = 0
-    if (means_switch == 1):
-        means = np.arange(0, 0.99, 0.2, dtype=_float_type)
-    elif (means_switch == 2):
-        means = np.arange(0, 0.99, 0.1, dtype=_float_type)
-    elif (means_switch == 3):
-        means = np.arange(0, 0.99, 0.02, dtype=_float_type)
-    if (random_switch == 1):
-        means = np.random.permutation(means)
-    sigma = 0.25
-    vars = np.ones(means.size, dtype=_float_type) * sigma
-    nd = NormalData(means, vars)
-    print nd
-    conf = bai.Configuration(nd.n, 0.1, 0.1, 1.0, 0.25)
-    print conf
-    alg = None
-    if (test_switch == 1):
-        alg = bai.Naive(conf, nd.pull)
-    elif (test_switch == 2):
-        alg = bai.SuccessiveElimination(conf, nd.pull)
-    elif (test_switch == 3):
-        alg = bai.MedianElimination(conf, nd.pull)
-    elif (test_switch == 4):
-        alg = bai.ExponentialGapElimination(conf, nd.pull)
-    elif (test_switch == 5):
-        alg = bai.UpperConfidenceBound(conf, nd.pull)
-    print 'ALG start...'
-    time_start = time.clock()
-    ret = -1
-    if (alg_switch == 1):
+class Experiment(object):
+    """Documentation for Experiment
+
+    """
+    def __init__(self, data_set):
+        super(Experiment, self).__init__()
+        self.data_set = data_set
+        return None
+
+    def _presult(self):
+        return None
+
+    def _result(self, pbd, ret):
+        print pbd.h1
+        for i in range(0, 1, pbd.conf.size):
+            print pbd.total_pulls()
+        if ret == pbd.conf.means.argmax():
+            print 'GOOD'
+        else:
+            print 'BAD'
+        size = np.zeros(pbd.conf.size, np.int)
+        for i in range(0, pbd.conf.size, 1):
+            size[i] = pbd._data[i].total_pulls()
+        print size
+        return None
+
+    def naive(self):
+        pbd = PreBuildData(self.data_set)
+        conf = bai.Configuration(pbd.conf.size, 0.1, 0.01, 1.0, 0.25)
+        self._presult()
+        alg = bai.Naive(conf, pbd.pull)
         ret = alg.run()
-    elif (alg_switch == 2):
+        self._result(pbd, ret)
+        return ret
+
+    def se(self):
+        pbd = PreBuildData(self.data_set)
+        conf = bai.Configuration(pbd.conf.size, 0.1, 0.01, 1.0, 0.25)
+        alg = bai.SuccessiveElimination(conf, pbd.pull)
         ret = alg.run_ls()
+        self._result(pbd, ret)
+        return ret
+
+    def me(self):
+        pbd = PreBuildData(self.data_set)
+        conf = bai.Configuration(pbd.conf.size, 0.1, 0.1, 1.0, 0.25)
+        alg = bai.MedianElimination(conf, pbd.pull)
+        ret = alg.run_ls()
+        self._result(pbd, ret)
+        return ret
+
+    def ege(self):
+        pbd = PreBuildData(self.data_set)
+        conf = bai.Configuration(pbd.conf.size, 0.1, 0.1, 1.0, 0.25)
+        alg = bai.ExponentialGapElimination(conf, pbd.pull)
+        ret = alg.run_ls()
+        self._result(pbd, ret)
+        return ret
+
+    def ucb(self):
+        pbd = PreBuildData(self.data_set)
+        conf = bai.Configuration(pbd.conf.size, 0.1, 0.1, 1.0, 0.25)
+        alg = bai.UpperConfidenceBound(conf, pbd.pull)
+        ret = alg.run_ls()
+        self._result(pbd, ret)
+        return ret
+
+    def lucb(self):
+        pbd = PreBuildData(self.data_set)
+        conf = bai.Configuration(pbd.conf.size, 0.1, 0.1, 1.0, 0.25)
+        alg = bai.LUCB(conf, pbd.pull)
+        ret = alg.run()
+        self._result(pbd, ret)
+        return ret
+
+
+def test(argv):
+    # PreBuildData.random(20, 0.1, 3, 'n20')
+    time_start = time.clock()
+    e = Experiment('abc')
+    e.naive()
     time_stop = time.clock()
-    print 'ALG end'
     print 'Running time: %f' % (time_stop - time_start)
-    if (ret == nd.means.argmax()):
-        print '**********(%d)************' % ret
-    else:
-        print '----------(%d : %d)-------' % (nd.means.argmax(), ret)
-    print 'Total arm pulls: %d' % nd.data.size
-    return
+    return None

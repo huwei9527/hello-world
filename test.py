@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import experiment
+import sys
 
 
 def test(id):
@@ -9,7 +10,7 @@ def test(id):
 
 
 print 'Experiment start...'
-experiment.test()
+experiment.test(sys.argv)
 
 
 class A(object):
