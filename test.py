@@ -4,8 +4,8 @@ import experiment
 import sys
 
 
-def test(id):
-    print id
+def test(a=1, b=2, c=3):
+    print a, b, c
     return
 
 
@@ -18,7 +18,6 @@ class A(object):
     abc = 200
 
     def __init__(self):
-        self.aa()
         return
 
     def __str__(self):
@@ -34,9 +33,29 @@ class A(object):
     def testcm(a):
         print a
 
+    def a(self):
+        pass
+
+    def bb():
+        print 'A bb'
+        return None
+
     def aa(self):
         print 'aa'
+        self.bb()
         return
+
+
+class B(A):
+
+    def __init__(self):
+        super(B, self).__init__()
+        self.abcd = 0
+        return None
+
+    def bb(self):
+        print 'B bb'
+        return None
 
 
 print 'Over.'

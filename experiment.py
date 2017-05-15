@@ -356,6 +356,7 @@ class Experiment(object):
     def __init__(self, data_set):
         super(Experiment, self).__init__()
         self.data_set = data_set
+        self._module = __import__('best_arm_identification')
         return None
 
     def _presult(self):
@@ -375,61 +376,20 @@ class Experiment(object):
         print size
         return None
 
-    def naive(self):
+    def run(self, t, alg_name, num_pulls=None, epsilon=0.1):
         pbd = PreBuildData(self.data_set)
-        conf = bai.Configuration(pbd.conf.size, 0.1, 0.01, 1.0, 0.25)
-        self._presult()
-        alg = bai.Naive(conf, pbd.pull)
-        ret = alg.run()
-        self._result(pbd, ret)
-        return ret
-
-    def se(self):
-        pbd = PreBuildData(self.data_set)
-        conf = bai.Configuration(pbd.conf.size, 0.1, 0.01, 1.0, 0.25)
-        alg = bai.SuccessiveElimination(conf, pbd.pull)
-        ret = alg.run_ls()
-        self._result(pbd, ret)
-        return ret
-
-    def me(self):
-        pbd = PreBuildData(self.data_set)
-        conf = bai.Configuration(pbd.conf.size, 0.1, 0.1, 1.0, 0.25)
-        alg = bai.MedianElimination(conf, pbd.pull)
-        ret = alg.run_ls()
-        self._result(pbd, ret)
-        return ret
-
-    def ege(self):
-        pbd = PreBuildData(self.data_set)
-        conf = bai.Configuration(pbd.conf.size, 0.1, 0.1, 1.0, 0.25)
-        alg = bai.ExponentialGapElimination(conf, pbd.pull)
-        ret = alg.run_ls()
-        self._result(pbd, ret)
-        return ret
-
-    def ucb(self):
-        pbd = PreBuildData(self.data_set)
-        conf = bai.Configuration(pbd.conf.size, 0.1, 0.1, 1.0, 0.25)
-        alg = bai.UpperConfidenceBound(conf, pbd.pull)
-        ret = alg.run_ls()
-        self._result(pbd, ret)
-        return ret
-
-    def lucb(self):
-        pbd = PreBuildData(self.data_set)
-        conf = bai.Configuration(pbd.conf.size, 0.1, 0.1, 1.0, 0.25)
-        alg = bai.LUCB(conf, pbd.pull)
-        ret = alg.run()
+        conf = bai.Configuration(pbd.conf.size, 0.1, epsilon, 1.0, 0.25)
+        alg = getattr(self._module, alg_name)(conf, pbd.pull)
+        ret = alg.run(t, num_pulls)
         self._result(pbd, ret)
         return ret
 
 
 def test(argv):
-    # PreBuildData.random(20, 0.1, 3, 'n20')
+    # PreBuildData.random(20, 0.1, 3, 'abc')
     time_start = time.clock()
     e = Experiment('abc')
-    e.naive()
+    e.run(1, 'LUCB')
     time_stop = time.clock()
     print 'Running time: %f' % (time_stop - time_start)
     return None
