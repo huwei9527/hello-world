@@ -77,7 +77,7 @@ class IndexList(object):
     def __init__(self):
         super(IndexList, self).__init__()
         self._step = 10000
-        self._index = np.zeros(self._step, _float_type)
+        self._index = np.zeros(self._step, np.int)
         self._data = np.zeros(self._step, _float_type)
         self._size = 0
         return None

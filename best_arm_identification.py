@@ -56,6 +56,7 @@ class Arms(object):
         self.t = np.zeros(size, np.int)
         self.means = np.zeros(size, _float_type)
         self.arms = np.arange(0, size, 1, np.int)
+        self.path = ds.IndexList()
 
         self._pull = pull
         return None
@@ -111,6 +112,17 @@ class Arms(object):
     def pull_all(self, t):
         for arm_id in self.arms:
             self.pull(arm_id, t)
+        return None
+
+    def pull_and_store(self, arm_id):
+        self.t[arm_id] += 1
+        self.means[arm_id] = self._pull(arm_id, 1)
+        self.path.append(arm_id, self.means[arm_id])
+        return None
+
+    def pull_all_and_store(self):
+        for arm_id in self.arms:
+            self.pull_and_store(arm_id)
         return None
 
     def max_arms(self):
@@ -322,7 +334,8 @@ class AlgorithmFrame(object):
                 break
             if (self.print_flag) and (self._step_r % 100 == 0):
                 print '%s[%d %d]' % (self.str_alg, self._step_r, self._step_t)
-            self._arms.pull_all(1)
+            # self._arms.pull_all(1)
+            self._arms.pull_all_and_store()
             self.num_pulls += self._arms.size
             self._t -= 1
             self._step_t -= self._arms.size
@@ -331,6 +344,7 @@ class AlgorithmFrame(object):
                 self._basic_next()
                 if (self._basic_is_stop()):
                     break
+        # print 'size: %d' % self._arms.path.size
         return None
 
 
@@ -414,6 +428,15 @@ class Algorithm(AlgorithmFrame):
             print 'End ALG(%s).' % (self.alg_name)
         return self._result()
 
+    def path(self):
+        means = np.zeros(self._conf.n, _float_type)
+        ret = np.zeros(self._arms.path.size, np.int)
+        for i in range(0, self._arms.path.size, 1):
+            el = self._arms.path[i]
+            means[el[0]] = el[1]
+            ret[i] = means.argmax()
+        return ret
+
     def compute_time(self, means):
         pass
 
@@ -438,7 +461,10 @@ class Naive(Algorithm):
         return 0
 
     def _is_stop(self):
-        return True
+        if (self._t > 1):
+            return True
+        else:
+            return False
 
     def _run_str(self):
         return ('%d' % (self._t))
@@ -592,6 +618,7 @@ class ExponentialGapElimination(Algorithm):
         return ret
 
     def _init(self, arms=None):
+        print self._conf.n
         self.e = 1 / 8.0
         self.d = self._conf.v / (50.0 * self._r * self._r * self._r)
         self._t = self._compute_time()
