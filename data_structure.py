@@ -1,25 +1,132 @@
 import rbtree
 import numpy as np
 
-_float_type = np.float
-precision = np.finfo(float).resolution
+FLOAT_TYPE = np.float
+PRECISION = np.finfo(float).resolution
+
+
+def is_float_equal(a, b):
+    return (np.isclose(a, b, PRECISION))
+
+
+def malloc_float(size):
+    return np.zeros(size, FLOAT_TYPE)
+
+
+def malloc_float_one(size):
+    return np.ones(size, FLOAT_TYPE)
+
+
+def malloc_int(size):
+    return np.zeros(size, np.int)
+
+
+def malloc_int_ones(size):
+    return np.ones(size, np.int)
+
+
+def set_random_seed(seed):
+    np.random.seed(seed)
+    return None
+
+
+def normal(mean, variance, size):
+    return np.random.normal(mean, variance, size)
+
+
+def random_int(max_val):
+    return np.random.randint(max_val)
+
+
+def path_str(path_1, path_2):
+    return (path_1 + '/' + path_2)
+
+
+def compute_H1(means):
+    delta = means.max() - means
+    ret = 0.0
+    for el in delta:
+        if (not is_float_equal(el, 0.0)):
+            ret = 1.0 / (el * el)
+    return ret
+
+
+class NPArray(object):
+    """Documentation for NPArray
+
+    """
+    def __init__(self):
+        super(NPArray, self).__init__()
+        self._data = None
+        return None
+
+    def __str__(self):
+        return ('%s' % (self._data))
+
+    def __getattr__(self, name):
+        if (name == 'size'):
+            return self._data.size
+        else:
+            raise AttributeError(name)
+        return None
+
+    def __getitem__(self, index):
+        return self._data[index]
+
+    def __setitem__(self, index, value):
+        self._data[index] = value
+        return None
+
+    def save(self, fn):
+        if (self._data is not None):
+            np.save(fn, self._data)
+        else:
+            print 'Try to save None array'
+        return None
+
+    def load(self, fn):
+        self._data = np.load(fn)
+        return None
+
+
+class FloatArray(NPArray):
+    """Documentation for FloatArray
+
+    """
+    def __init__(self, size=None):
+        super(FloatArray, self).__init__()
+        if (size is not None):
+            self._data = malloc_float(size)
+        return None
+
+
+class IntArray(NPArray):
+    """Documentation for IntArray
+
+    """
+    def __init__(self, size=None):
+        super(IntArray, self).__init__()
+        if (size is not None):
+            self._data = malloc_int(size)
+        return None
 
 
 class FloatList(object):
     """Documentation for FloatList
 
     """
+    STEP = 10000
+
     def __init__(self):
         super(FloatList, self).__init__()
-        self._step = 10000
-        self._type = _float_type
-        self._data = np.zeros(self._step, self._type)
+        self.STEP = 10000
+        self._data = malloc_float(self.STEP)
         self._size = 0
-        return
+        return None
 
     def _malloc(self):
-        self._data.resize(self._data.size + self._step)
-        return
+        self._data.resize(self._data.size + self.STEP)
+        return None
 
     def __getitem__(self, index):
         return self._data[index]
@@ -29,14 +136,14 @@ class FloatList(object):
             return self._size
         else:
             raise AttributeError(name)
-        return
+        return None
 
     def append(self, value):
         if self._data.size <= self._size:
             self._malloc()
         self._data[self._size] = value
         self._size += 1
-        return
+        return None
 
 
 class CachedList(object):
@@ -47,7 +154,7 @@ class CachedList(object):
         super(CachedList, self).__init__()
         self._b = FloatList()
         self._compute = compute
-        return
+        return None
 
     def __getitem__(self, index):
         if (self._b.size <= index):
@@ -76,9 +183,9 @@ class IndexList(object):
     """
     def __init__(self):
         super(IndexList, self).__init__()
-        self._step = 10000
-        self._index = np.zeros(self._step, np.int)
-        self._data = np.zeros(self._step, _float_type)
+        self.STEP = 10000
+        self._index = np.zeros(self.STEP, np.int)
+        self._data = np.zeros(self._index.size, FLOAT_TYPE)
         self._size = 0
         return None
 
@@ -93,7 +200,7 @@ class IndexList(object):
         return (self._index[index], self._data[index])
 
     def _malloc(self):
-        self._index = self._index.resize(self._index.size + self._step)
+        self._index = self._index.resize(self._index.size + self.STEP)
         self._data = self._data.resize(self._index.size)
         return None
 
@@ -104,61 +211,6 @@ class IndexList(object):
         self._data[self._size] = data
         self._size += 1
         return None
-
-
-class Data(object):
-    """Dynamic array.
-
-    Member:
-        _step: The step of resizing.
-        _type: float type
-        data: memory
-    """
-
-    def __init__(self):
-        super(Data, self).__init__()
-        self._type = _float_type
-        self._step = 10000
-
-        self._id = np.zeros(self._step, np.int)
-        self._val = np.zeros(self._step, self._type)
-        self._size = 0
-        return
-
-    def _malloc(self):
-        self._val.resize(self._val.size + self._step)
-        self._id.resize(self._id.size + self._step)
-        return
-
-    def __getitem__(self, index):
-        return self.data[index]
-
-    def __getattr__(self, name):
-        if (name == 'size'):
-            return self._size
-        else:
-            raise AttributeError(name)
-        return
-
-    def append(self, id, val):
-        if self._val.size <= self._size:
-            self._malloc()
-        self._id[self._size] = id
-        self._val[self._size] = val
-        self._size += 1
-        return
-
-    def data_vector(self):
-        return self._val[0:self._size]
-
-    def arm_id_vector(self):
-        return self._id[0:self._size]
-
-    def set(self, id, val):
-        self._id = id
-        self._val = val
-        self._size = val.size
-        return
 
 
 class SortedListNode(object):
@@ -172,7 +224,7 @@ class SortedListNode(object):
         self._is_delete = False
         self._big = 1
         self._small = -self._big
-        return
+        return None
 
     def __str__(self):
         return ("(%d, %f)" % (self.id, self.val))
@@ -180,7 +232,7 @@ class SortedListNode(object):
     def __cmp__(self, obj):
         if (self.id == obj.id):
             return 0
-        elif np.isclose(self.val, obj.val, precision):
+        elif is_float_equal(self.val, obj.val):
             if (self.id < obj.id):
                 return self._small
             else:
@@ -189,11 +241,11 @@ class SortedListNode(object):
             return self._big
         else:
             return self._small
-        return
+        return None
 
     def delete(self):
         self._is_delete = True
-        return
+        return None
 
 
 class SortedList(object):
@@ -204,7 +256,7 @@ class SortedList(object):
         super(SortedList, self).__init__()
         self.node = []
         self.data = rbtree.rbtree()
-        return
+        return None
 
     def __str__(self):
         ret = ""
@@ -219,12 +271,12 @@ class SortedList(object):
         del self.data[self.node[index]]
         self.node[index].val = value
         self.data[self.node[index]] = 1
-        return
+        return None
 
     def __delitem__(self, index):
         del self.data[self.node[index]]
         self.node[index].delete()
-        return
+        return None
 
     def __getattr__(self, name):
         if (name == 'size'):
@@ -238,13 +290,13 @@ class SortedList(object):
             self.node.append(SortedListNode(i, el))
             self.data[self.node[i]] = 1
             i += 1
-        return
+        return None
 
     def append(self, value):
         n = len(self.node)
         self.node.append(SortedListNode(n, value))
         self.data[self.node[n]] = 1
-        return
+        return None
 
     def argmax(self):
         return self.data.max().id
@@ -262,8 +314,8 @@ class SortedList(object):
         del self.data[self.node[id]]
         self.node[id].val = val
         self.data[self.node[id]] = 1
-        return
+        return None
 
 
 def test():
-    return
+    return None
