@@ -1,7 +1,8 @@
 import numpy as np
+import data_structure as ds
 import os
 import shutil
-import data_structure as ds
+import util
 
 
 def main():
@@ -13,62 +14,90 @@ if (__name__ == '__main__'):
     main()
 
 
-def compute_means(means, arms, start_id, size, sums, nums):
-    for arm_id in range(start_id, start_id + size, 1):
-        pass
-    return None
-
-
-class _Normal(object):
-    """Documentation for _Normal
-
-    """
-    def __init__(self, mean, variance):
-        super(_Normal, self).__init__()
-        self._mean = mean
-        self._variance = variance
-        return None
-
-    def random(self, size):
-        return ds.normal(self._mean, self._variance, size)
-
-
 class _DataFile(object):
     """Documentation for _DataFile
 
     """
     SUB_FILE_NAME_PREFIX = 'd'
     DEFAULT_FILE_NAME = 'default'
+    DATA_STRS = []
 
     def __init__(self, data_dir):
         super(_DataFile, self).__init__()
-        self._file_name = ds.path_str(
-            data_dir, self.DEFAULT_FILE_NAME + '.npz')
-        self._datas = None
+        self._data_dir = data_dir
+        self._set_file_name(self.DEFAULT_FILE_NAME)
+        self._datas = {}
         return None
 
-    def _sub_file_name(self, data_id):
-        return ('%s%d' % (self.SUB_FILE_NAME_PREFIX, data_id))
+    def _var_str(self, name):
+        return ('_%s' % name)
 
-    def set_file_name(self, name):
-        self._file_name = name
+    def _prepare_save(self):
+        self._datas.update(
+            map(lambda x: (x, getattr(self, self._var_str(x))),
+                self.DATA_STRS))
+        return None
+
+    def _before_save(self):
+        pass
+
+    def _after_load(self):
+        pass
+
+    def _set_data(self, name, value):
+        setattr(self, name, value)
+        # super(_DataFile, self).__setattr__(name, value)
+        return None
+
+    def _path_str(self, data_dir, name):
+        return (ds.path_str(data_dir, '%s.npz' % name))
+
+    def _set_file_name(self, name):
+        self._file_name = self._path_str(self._data_dir, name)
         return None
 
     def save(self):
-        func_str = 'np.savez(self._file_name'
-        for i in range(0, len(self._datas), 1):
-            func_str += (', %s=self._datas[%d]' % (self._sub_file_name(i), i))
-        func_str += ')'
-        eval(func_str)
+        self._before_save()
+        self._prepare_save()
+        print 'Save file (%s)' % self._file_name
+        np.savez(self._file_name, **self._datas)
         return None
 
     def load(self):
+        print 'Load file (%s)' % self._file_name
         with np.load(self._file_name) as d:
-            func_str = ('(d[\'%s\']' % (self._sub_file_name(0)))
-            for i in range(1, len(d.files), 1):
-                func_str += (', d[\'%s\']' % (self._sub_file_name(i)))
-            func_str += ')'
-            self._datas = eval(func_str)
+            map(lambda x: setattr(self, self._var_str(x), d[x]), d)
+        self._after_load()
+        return None
+
+
+class _RandomSeed(_DataFile):
+    """Documentation for _RandomSeed
+
+    """
+    DEFAULT_FILE_NAME = 'seed'
+    DATA_STRS = ['seed']
+    MAX_SEED = 65535
+
+    def __init__(self, data_dir):
+        super(_RandomSeed, self).__init__(data_dir)
+        return None
+
+    def __getattr__(self, name):
+        if (name == 'seed'):
+            return self._seed
+        else:
+            raise AttributeError(name)
+        return None
+
+    def init(self, seed=None):
+        self._seed = (
+            seed if seed is not None
+            else ds.random_int(_RandomSeed.MAX_SEED))
+        return None
+
+    def set_seed(self):
+        ds.set_random_seed(self._seed)
         return None
 
 
@@ -77,11 +106,10 @@ class _NormalDataConfig(_DataFile):
 
     """
     DEFAULT_FILE_NAME = 'normal'
-    MEANS_ID = 0
-    VARIANCES_ID = 1
+    DATA_STRS = ['means', 'variances']
 
     def __str__(self):
-        return '%s\n%s\n' % (self.means, self.variances)
+        return '%s\n%s\n' % (self._means, self._variances)
 
     def __init__(self, data_dir):
         super(_NormalDataConfig, self).__init__(data_dir)
@@ -89,28 +117,22 @@ class _NormalDataConfig(_DataFile):
 
     def __getattr__(self, name):
         if (name == 'size'):
-            return self._datas[self.MEANS_ID].size
-        elif (name == 'means'):
-            return self._datas[self.MEANS_ID]
-        elif (name == 'variances'):
-            return self._datas[self.VARIANCES_ID]
+            return self._means.size
         else:
             raise AttributeError(name)
         return None
 
-    def normal_factory(self, arm_id):
-        return _Normal(self.means[arm_id],
-                       self.variance[arm_id])
+    def random(self, arm_id, size):
+        return (ds.normal(self._means[arm_id], self._variances[arm_id], size))
 
     def h1(self):
-        return ds.compute_H1(self.means)
+        return ds.compute_H1(self._means)
 
     def init(self, means, variances=None):
-        if (variances is not None):
-            self._datas = (means.copy(), variances.copy())
-        else:
-            self._datas = (
-                means.copy(), ds.malloc_float_one(self._means.size) * 0.25)
+        self._means = means.copy()
+        self._variances = (
+            variances.copy() if variances is not None
+            else ds.malloc_float_one(self.size) * 0.25)
         return None
 
 
@@ -119,42 +141,40 @@ class _ArmsDataConfig(_DataFile):
 
     """
     DEFAULT_FILE_NAME = 'arms'
-    ARM_SUMS_ID = 0
-    ARM_NUMS_ID = 1
-    BLOCK_NUMS_ID = 2
+    DATA_STRS = ['arm_sums', 'arm_nums', 'block_nums', 'block_sizes']
+    SINGLE_BLOCK_SIZE_ID = 0
+    MULTI_BLOCK_SIZE_ID = 1
 
     def __init__(self, data_dir):
         super(_ArmsDataConfig, self).__init__(data_dir)
         return None
 
     def __str__(self):
-        return '%s\n%s\n%s' % (self._datas[0], self._datas[1], self._datas[2])
+        return ('%s\n%s\n%s' % (
+            self._arm_sums, self._arm_nums, self._block_nums))
 
     def __getattr__(self, name):
         if (name == 'arm_sums'):
-            return self._datas[self.ARM_SUMS_ID]
+            return self._arm_sums
         elif (name == 'arm_nums'):
-            return self._datas[self.ARM_NUMS_ID]
+            return self._arm_nums
         elif (name == 'block_nums'):
-            return self._datas[self.BLOCK_NUMS_ID]
+            return self._block_nums
+        elif (name == 'single_block_size'):
+            return self._block_sizes[self.SINGLE_BLOCK_SIZE_ID]
+        elif (name == 'multi_block_size'):
+            return self._block_sizes[self.MULTI_BLOCK_SIZE_ID]
         else:
             raise AttributeError(name)
         return None
 
-    def __getitem__(self, arm_id):
-        return (self._datas[0][arm_id],
-                self._datas[1][arm_id],
-                self._datas[2][arm_id],)
-
-    def __setitem__(self, arm_id, value):
-        (self._datas[0][arm_id],
-         self._datas[1][arm_id],
-         self._datas[2][arm_id]) = value
-        return None
-
-    def init(self, size):
-        self._datas = (
-            ds.malloc_float(size), ds.malloc_int(size), ds.malloc_int(size))
+    def init(self, size, single_block_size, multi_block_size):
+        self._arm_sums = ds.malloc_float(size)
+        self._arm_nums = ds.malloc_int(size)
+        self._block_nums = ds.malloc_int(size)
+        self._block_sizes = ds.malloc_int(2)
+        self._block_sizes[self.SINGLE_BLOCK_SIZE_ID] = single_block_size
+        self._block_sizes[self.MULTI_BLOCK_SIZE_ID] = multi_block_size
         return None
 
 
@@ -175,19 +195,38 @@ class _Config(object):
     def __getattr__(self, name):
         if (name == 'size'):
             return self._normal.size
+        elif (name == 'arm_sums'):
+            return self._arms.arm_sums
+        elif (name == 'arm_nums'):
+            return self._arms.arm_nums
+        elif (name == 'block_nums'):
+            return self._arms.block_nums
+        elif (name == 'single_block_size'):
+            return self._arms.single_block_size
+        elif (name == 'multi_block_size'):
+            return self._arms.multi_block_size
+        elif (name == 'h1'):
+            return self._normal.compute_H1()
         else:
             raise AttributeError(name)
         return None
 
-    def __getitem__(self, arm_id):
-        return (self._arms[arm_id])
+    def block_data_factory(self, arm_id):
+        return (_BlockData(arm_id, self))
 
-    def __setitem__(self, arm_id, value):
-        self._arms[arm_id] = value
-        return None
+    def multi_block_factory(self):
+        return (_MultiBlocks(self, self.multi_block_size))
 
-    def normal_factory(self, arm_id):
-        return (self._normal.normal_factory())
+    def single_block_factory(self, arm_id):
+        return (_SingleBlock(self, arm_id, self.single_block_size))
+
+    def data_block_factory(self):
+        db = _DataBlock(self)
+        db.load()
+        return db
+
+    def random(self, arm_id, size):
+        return (self._normal.random(arm_id, size))
 
     def save(self):
         self._normal.save()
@@ -199,385 +238,493 @@ class _Config(object):
         self._arms.load()
         return None
 
-    def init(self, means, variances):
-        self._normal.init(means, variances)
-        self._arms.init(self._normal.size)
-        return None
+    @classmethod
+    def init(cls, data_dir, means, variances,
+             single_block_size=1000000, multi_block_size=10000):
+        config = cls(data_dir)
+        config._normal.init(means, variances)
+        config._arms.init(config.size, single_block_size, multi_block_size)
+        _DataBlock.init(config)
+        config.save()
+        return config
 
 
-class _BlockHead(_DataFile):
-    """Documentation for _BlockHead
-
-    """
-    DEFAULT_FILE_NAME = 'head'
-    ALLOC_SIZE = 10000
-    ARMS_ID = 0
-    MEANS_ID = 1
-
-    def __init__(self, data_dir):
-        super(_BlockHead, self).__init__(data_dir)
-        return None
-
-    def __getattr__(self, name):
-        if (name == 'arms'):
-            return self._datas[self.ARMS_ID]
-        elif (name == 'means'):
-            return self._datas[self.MEANS_ID]
-        else:
-            raise AttributeError(name)
-        return None
-
-    def init(self, size, normal):
-        self._datas = ({}, {})
-        for i in range(0, self.data.shape[0], 1):
-            self.arms[i] = normal.normal_factory(i).random(self.ALLOC_SIZE)
-        return None
-
-
-class _Block(_DataFile):
-    """Documentation for _Block
+class _BlockData(object):
+    """Documentation for _BlockData
 
     """
-    ARMS_ID = 0
-    MEANS_ID = 1
-
-    def __init__(self, data_dir):
-        super(_Block, self).__init__(data_dir)
-        return None
-
-    def init(self, size):
-        return None
-
-
-class DataBlock(object):
-    """Documentation for DataBlock
-
-    """
-    ALLOC_SIZE = 10000
-    BLOCK_SIZE = 1000000
-
-    def __init__(self, arm_id, conf):
-        super(DataBlock, self).__init__()
-        self.data_dir = conf.data_dir
-
+    def __init__(self, arm_id, config):
+        super(_BlockData, self).__init__()
         self._arm_id = arm_id
-        self._normal = conf.normal_factory(self._arm_id)
-        self._arm_sum = 0.0
-        self._arm_num = 0
-        self._block_num = 0
-        self.set(conf)
-
-        self._block_id = 0
+        self._conf = config
+        self._curr_id = -1
         self._arms = None
         self._means = None
         return None
 
     def __str__(self):
-        return (("arm_id = %d, block_id = %d\n"
-                 "means = %s") % (
-                     self._arm_id, self._block_id,
-                     self._means))
-
-    def __getitem__(self, index):
-        return self._means[index]
-
-    def _normal(self, size):
-        return np.random.normal(self._mean, self._variance, size)
-
-    def _block_ceil(self, n):
-        return np.int(
-            np.ceil(n * 1.0 / self._conf.ALLOC_SIZE) * self._conf.ALLOC_SIZE)
-
-    def _filename(self):
-        return (ds.path_str(
-            self.data_dir,
-            str(self._arm_id) + '_' + str(self._block_id) + '.npz'))
-
-    def _compute_means(self, arms, start_id):
-        n = self._conf.max_arm_nums[self._arm_id]
-        sum = self._conf.mean_sums[self._arm_id]
-        for i in range(start_id, arms.size, 1):
-            n += 1
-            sum += arms[i]
-            self._means[i] = sum / n
-        self._conf.mean_sums[self._arm_id] = sum
-        self._conf.max_arm_nums[self._arm_id] += arms.size - start_id
-        return None
-
-    def _save(self, arms, start_id):
-        self._compute_means(arms, start_id)
-        np.savez(self._filename(), arms=arms, means=self._means)
-        self._conf.save()
-        return None
-
-    def init(self):
-        arms = self._normal(self._conf.ALLOC_SIZE)
-        self._means = np.zeros(arms.size, FLOAT_TYPE)
-        self._block_id = 0
-        self.sum = 0
-        self.size = -1
-        self._save(arms, 0)
-        return None
-
-    def get(self):
-        return (self._arm_sum, self._arm_num, self._block_num)
-
-    def set(self, conf):
-        (self._arm_sum, self._arm_num, self._block_num) = conf[self._arm_id]
-        return None
-
-    def _raw_load(self):
-        with np.load(self._filename()) as d:
-            self._means = d['means']
-        return None
-
-    def _raw_new_block(self, end_id):
-        arms = self._normal(end_id)
-        self._means = np.zeros(arms.size, FLOAT_TYPE)
-        self._block_id = self._conf.max_block_nums[self._arm_id]
-        self._conf.max_block_nums[self._arm_id] += 1
-        self._save(arms, 0)
-        return None
-
-    def _raw_append_block(self, end_id):
-        start_id = self._means.size
-        arms_val = self._normal(end_id - start_id)
-        with np.load(self._filename()) as d:
-            arms = d['arms']
-        arms.resize(end_id)
-        arms[start_id:end_id] = arms_val[0:(end_id - start_id)]
-        self._means.resize(end_id)
-        self._save(arms, start_id)
-        return None
-
-    def load(self):
-        self._block_id = 0
-        self.size = -1
-        self._raw_load()
-        return None
-
-    def _new(self, end_id):
-        size = self._block_ceil(end_id)
-        return self._raw_new_block(size)
-
-    def _append(self, end_id):
-        end_id = self._block_ceil(end_id)
-        return self._raw_append_block(end_id)
-
-    def _new_one(self):
-        return self._raw_new_block(self._conf.ALLOC_SIZE)
-
-    def _append_one(self):
-        return self._raw_append_block(self._means.size + self._conf.ALLOC_SIZE)
-
-    def total_pulls(self):
-        return (self._block_id * self._conf.BLOCK_SIZE + self.size + 1)
-
-    def pull(self, t):
-        if (t == 1):
-            return self.pull_once()
-        n = self.size + t
-        if (n < self._means.size):
-            self.size = n
-        else:
-            n += self._block_id * self._conf.BLOCK_SIZE
-            if (n < self._conf.max_arm_nums[self._arm_id]):
-                self._block_id = n / self._conf.BLOCK_SIZE
-                self._raw_load()
-                self.size = n - self._block_id * self._conf.BLOCK_SIZE
-            else:
-                last_block_id = self._conf.max_block_nums[self._arm_id] - 1
-                if (self._block_id != last_block_id):
-                    self._block_id = last_block_id
-                    self._raw_load()
-                n -= self._block_id * self._conf.BLOCK_SIZE
-                if (n < self._conf.BLOCK_SIZE):
-                    self._append(n + 1)
-                    self.size = n
-                else:
-                    self._append(self._conf.BLOCK_SIZE)
-                    n -= self._conf.BLOCK_SIZE
-                    while True:
-                        if (n < self._conf.BLOCK_SIZE):
-                            break
-                        self._new(self._conf.BLOCK_SIZE)
-                        n -= self._conf.BLOCK_SIZE
-                    self._new(n + 1)
-                    self.size = n
-        return self._means[self.size]
-
-    def pull_once(self):
-        self.size += 1
-        if (self.size == self._means.size):
-            if (self._means.size == self._conf.BLOCK_SIZE):
-                last_block_id = self._conf.max_block_nums[self._arm_id] - 1
-                if (self._block_id == last_block_id):
-                    self._new_one()
-                else:
-                    self._block_id += 1
-                    self._raw_load()
-                self.size = 0
-            else:
-                self._append_one()
-        return self._means[self.size]
-
-
-class _RandomSeed(_DataFile):
-    """Documentation for _RandomSeed
-
-    """
-    DEFAULT_FILE_NAME = 'seed'
-    SEED_ID = 0
-
-    def __init__(self, data_dir):
-        super(_RandomSeed, self).__init__(data_dir)
-        return None
+        return ('%s\n%s' % (self._arms, self._means))
 
     def __getattr__(self, name):
-        if (name == 'seed'):
-            return self._datas[self.SEED_ID]
+        if (name == 'size'):
+            return (self._arms.size - self._curr_id - 1)
+        elif (name == 'arms'):
+            return self._arms
+        elif (name == 'means'):
+            return self._means
         else:
             raise AttributeError(name)
         return None
 
-    def init(self, seed=None):
-        if (seed is not None):
-            self._datas = (seed, )
-        else:
-            self._datas = (ds.random_int(65535), )
+    def _get_arm_sum(self):
+        return (self._conf.arm_sums[self._arm_id])
+
+    def _get_arm_num(self):
+        return (self._conf.arm_nums[self._arm_id])
+
+    def _set_arm_sum(self, value):
+        self._conf.arm_sums[self._arm_id] = value
         return None
 
-    def set_seed(self):
-        ds.set_random_seed(self.seed)
+    def _set_arm_num(self, value):
+        self._conf.arm_nums[self._arm_id] = value
         return None
+
+    def _random(self, size):
+        # return (ds.malloc_float_one(size) * self._arm_id)
+        # return (ds.nrange(size) * (self._arm_id + 1))
+        return (self._conf.random(self._arm_id, size))
+
+    def _compute_means(self):
+        self._means = ds.malloc_float(self.size)
+        sum_ = self._get_arm_sum()
+        num = self._get_arm_num()
+        for i in xrange(self.size):
+            sum_ += self._arms[i]
+            num += 1
+            self._means[i] = sum_ / num
+        self._set_arm_sum(sum_)
+        self._set_arm_num(num)
+        return None
+
+    def init(self, size):
+        self._arms = self._random(size)
+        self._compute_means()
+        self._curr_id = -1
+        return None
+
+    def copy(self, arms, means):
+        self._arms = arms
+        self._means = means
+        return None
+
+    def pull(self, t):
+        self._curr_id += t
+        return (self._means[self._curr_id])
+
+
+class _BlockDataFile(_DataFile):
+    """Documentation for _BlockDataFile
+
+    """
+    def __init__(self, config, block_size):
+        super(_BlockDataFile, self).__init__(config.data_dir)
+        self._conf = config
+        self._block_size = block_size
+        return None
+
+
+class _MultiBlocks(_BlockDataFile):
+    """Documentation for _MultiBlocks
+
+    """
+    DEFAULT_FILE_NAME = 'head'
+    DATA_STRS = ['arms', 'means']
+
+    def __init__(self, config, block_size):
+        super(_MultiBlocks, self).__init__(config, block_size)
+        self._blocks = {}
+        self._blocks.update(
+            map(lambda x: (x, self._block_factory(x)),
+                xrange(self._conf.size)))
+        self._arms = None
+        self._means = None
+        return None
+
+    def __str__(self):
+        str_list = []
+        map(
+            lambda x: str_list.append('HEAD[%d]\n%s\n' % (x, self._blocks[x])),
+            self._blocks)
+        return (''.join(str_list))
+
+    def _block_factory(self, arm_id):
+        return (self._conf.block_data_factory(arm_id))
+
+    def _before_save(self):
+        self._arms = []
+        self._means = []
+        for i in xrange(len(self._blocks)):
+            block = self._blocks[i]
+            self._arms.append(block.arms)
+            self._means.append(block.means)
+        return None
+
+    def _after_load(self):
+        arm_id = 0
+        for (arms, means) in zip(self._arms, self._means):
+            self._blocks[arm_id].copy(arms, means)
+            arm_id += 1
+        return None
+
+    def init(self):
+        for item in self._blocks.itervalues():
+            item.init(self._block_size)
+        self.save()
+        return None
+
+    def size(self, arm_id):
+        return (self._blocks[arm_id].size)
+
+    def pull(self, arm_id, t):
+        return (self._blocks[arm_id].pull(t))
+
+
+class _SingleBlock(_BlockDataFile):
+    """Documentation for _SingleBlock
+
+    """
+    DEFAULT_FILE_NAME = 'block'
+    DATA_STRS = ['arms', 'means']
+
+    def __init__(self, config, arm_id, block_size):
+        super(_SingleBlock, self).__init__(config, block_size)
+        self._arm_id = arm_id
+        self._block = self._block_factory()
+        self._block_id = 0
+        return None
+
+    def __str__(self):
+        return ('%s' % self._block)
+
+    def __getattr__(self, name):
+        if (name == 'block_id'):
+            return self._block_id
+        else:
+            raise AttributeError(name)
+        return None
+
+    def _get_block_num(self):
+        return (self._conf.block_nums[self._arm_id])
+
+    def _set_block_num(self, value):
+        self._conf.block_nums[self._arm_id] = value
+        return None
+
+    def _block_factory(self):
+        return (self._conf.block_data_factory(self._arm_id))
+
+    def _change_file_name(self):
+        self._set_file_name('%d_%d' % (self._arm_id, self._block_id))
+        return None
+
+    def _new(self, num):
+        self._block_id = self._get_block_num()
+        for i in xrange(num):
+            self._block_id += 1
+            self._init()
+        self._set_block_num(self._block_id)
+        return None
+
+    def _load(self, new_block_id):
+        self._block_id = new_block_id
+        self._change_file_name()
+        self.load()
+        return None
+
+    def _before_save(self):
+        self._change_file_name()
+        self._arms = self._block.arms
+        self._means = self._block.means
+        return None
+
+    def _after_load(self):
+        self._block.copy(self._arms, self._means)
+        return None
+
+    def _is_empty(self):
+        return (self._block_id == 0)
+
+    def _set_first_block(self):
+        self._block_id = 0
+        self._next_block(1)
+        return None
+
+    def _next_block(self, num):
+        block_num = self._get_block_num()
+        new_block_id = self._block_id + num
+        if (new_block_id > block_num):
+            self._new(new_block_id - block_num)
+        else:
+            self._load(new_block_id)
+        return None
+
+    def _init(self):
+        self._block.init(self._block_size)
+        self.save()
+        return None
+
+    def pull_once(self):
+        if (self._is_empty()):
+            self._set_first_block()
+        size = self._block.size
+        if (size == 0):
+            self._next_block(1)
+        return (self._block.pull(1))
+
+    def pull(self, t):
+        ret = 0.0
+        if (self._is_empty()):
+            self._set_first_block()
+        size = self._block.size
+        if (size >= t):
+            ret = self._block.pull(t)
+        else:
+            # self._block.pull(size)
+            t -= size
+            self._next_block((t / self._block_size) + 1)
+            ret = self._block.pull(t % self._block_size)
+        return ret
+
+
+class _DataBlock(object):
+    """Documentation for _DataBlock
+
+    """
+    def __init__(self, config):
+        super(_DataBlock, self).__init__()
+        self._conf = config
+        self._head = self._head_factory()
+        self._blocks = {}
+        for arm_id in xrange(self._conf.size):
+            self._blocks[arm_id] = self._block_factory(arm_id)
+        return None
+
+    def __str__(self):
+        str_list = []
+        str_list.append(str(self._head))
+        for key, item in self._blocks.iteritems():
+            str_list.append(
+                'DATA[%d] : BLOCK[%d]\n%s\n' % (key, item._block_id, item))
+        return (''.join(str_list))
+
+    def _head_factory(self):
+        return (self._conf.multi_block_factory())
+
+    def _block_factory(self, arm_id):
+        return (self._conf.single_block_factory(arm_id))
+
+    def load(self):
+        self._head.load()
+        return None
+
+    def pull_once(self, arm_id):
+        size = self._head.size(arm_id)
+        ret = (self._head.pull(arm_id, 1)
+               if (size > 0) else
+               self._blocks[arm_id].pull_once())
+        return ret
+
+    def pull(self, arm_id, t):
+        if (t == 1):
+            return self.pull_once(arm_id)
+        size = self._head.size(arm_id)
+        ret = 0.0
+        if (size >= t):
+            ret = self._head.pull(arm_id, t)
+        else:
+            self._head.pull(arm_id, size)
+            ret = self._blocks[arm_id].pull(t - size)
+        return ret
+
+    @classmethod
+    def init(cls, config):
+        data = cls(config)
+        data._head.init()
+        return None
+
+
+class Means(object):
+    """Documentation for Means
+
+    """
+    def __init__(self):
+        super(Means, self).__init__()
+        self._means = None
+        return None
+
+    @classmethod
+    def one_sparse(cls, size):
+        ret = ds.malloc_float(size)
+        ret[0] = 0.5
+        return ret
+
+    @classmethod
+    def alpha_sparse(cls, size, alpha):
+        ret = ds.malloc_float(size)
+        for i in xrange(size):
+            ret[i] = 1.0 - ds.power(i * 1.0 / size, alpha)
+        return ret
+
+    @classmethod
+    def random(cls, size, gap, core_size,
+               max_val=0.99, core_gap=0.1, delta=0.5):
+        means = ds.malloc_float(size)
+        means[0] = max_val
+        means[1] = max_val - gap
+        means[2:(core_size + 1)] = ds.uniform(
+            max_val - gap - core_gap, max_val - gap, core_size - 1)[:]
+        means[(core_size + 1):] = ds.uniform(
+            0.0, (max_val - gap) * delta, size - 1 - core_size)[:]
+        return means
 
 
 class PreBuildData(object):
     """Documentation for PreBuildData
 
     """
-    def __init__(self, data_dir):
+    DATA_DIR = 'data'
+
+    def __init__(self, data_set):
         super(PreBuildData, self).__init__()
-        self.data_set = data_dir
-        self.conf = None
+        self._conf = _Config(PreBuildData.data_dir_str(data_set))
         self._data = None
-        self.load()
-
-        max_mean = self.conf.means.max()
-        self.h1 = 0.0
-        for el in (max_mean - self.conf.means):
-            if not (np.isclose(el, 0, ds.precision)):
-                self.h1 += 1.0 / (el * el)
         return None
 
-    @classmethod
-    def one_sparse_means(cls, size):
-        means = np.zeros(size, FLOAT_TYPE)
-        means[0] = 0.5
-        return means
+    def __str__(self):
+        return ('%s\n%s' % (self._conf, self._data))
 
-    @classmethod
-    def sparse_means(cls, size, alpha):
-        means = np.zeros(size, _float_type)
-        for i in range(0, size, 1):
-            means[i] = 1.0 - np.power(i * 1.0 / size, alpha)
-        return means
-
-    @classmethod
-    def one_sparse_data_sets(cls, size):
-        print 'Build One sparse data set %d' % size
-        data_set = 'one_sparse_' + str(size)
-        fn = 'data'
-        if not (os.path.exists(fn)):
-            os.mkdir(fn)
-        fn = fn + '/' + data_set
-        if not (os.path.exists(fn)):
-            os.mkdir(fn)
+    def __getattr__(self, name):
+        if (name == 'h1'):
+            return self._conf.h1
+        elif (name == 'data_dir'):
+            return self._conf.data_dir
         else:
-            shutil.rmtree(fn)
-            os.mkdir(fn)
-        PreBuildData.build(
-            size,
-            PreBuildData.one_sparse_means(size),
-            0.25 * np.ones(size, _float_type),
-            data_set)
-        print 'Build End %d' % size
+            raise AttributeError(name)
         return None
-
-    @classmethod
-    def build(cls, size, means, sigmas, data_dir):
-        conf = Config(data_set)
-        conf.init(size, means, sigmas)
-        for arm_id in range(0, conf.size, 1):
-            block = DataBlock(arm_id, conf)
-            block.init()
-        return None
-
-    @classmethod
-    def random(cls, size, gap=0.1, num=1, data_dir=None):
-        fn = 'data'
-        if not (os.path.exists(fn)):
-            os.mkdir(fn)
-        fn = fn + '/' + data_set
-        if not (os.path.exists(fn)):
-            os.mkdir(fn)
-        else:
-            shutil.rmtree(fn)
-            os.mkdir(fn)
-        means = np.zeros(size, _float_type)
-        means[0] = 0.9999
-        for i in range(1, num+1, 1):
-            means[i] = means[0] - gap - 0.0001 * (i - 1)
-        for i in range(num + 1, means.size, 1):
-            means[i] = np.random.uniform(0, means[1], 1)
-        sigmas = np.random.uniform(0, 1.0, size)
-        means = np.random.permutation(means)
-        PreBuildData.build(size, means, sigmas, data_set)
-        return None
-
-    @classmethod
-    def sample(cls, gap, data_dir):
-        means = np.arange(0, 0.99, gap, dtype=_float_type)
-        sigmas = np.ones(means.size, _float_type) * 0.25
-        PreBuildData.build(means.size, means, sigmas, data_set)
-        return None
-
-    @classmethod
-    def sample_1(cls, data_set='sample_1'):
-        return PreBuildData.sample(0.2, data_set)
-
-    @classmethod
-    def sample_2(cls, data_set='sample_2'):
-        return PreBuildData.sample(0.1, data_set)
-
-    @classmethod
-    def sample_3(cls, data_set='sample_3'):
-        return PreBuildData.sample(0.02, data_set)
 
     def load(self):
-        self.conf = Config(self.data_set)
-        self.conf.load()
-        self._data = []
-        for arm_id in range(0, self.conf.size, 1):
-            block = DataBlock(arm_id, self.conf)
-            block.load()
-            self._data.append(block)
+        self._conf.load()
+        self._data = self._conf.data_block_factory()
         return
 
-    def total_pulls(self):
-        ret = 0
-        for i in range(0, self.conf.size, 1):
-            ret += self._data[i].total_pulls()
-        return ret
+    def save(self):
+        self._conf.save()
+        return None
 
     def pull(self, arm_id, t):
-        return self._data[arm_id].pull(t)
+        return (self._data.pull(arm_id, t))
 
-    def pull_once(self, arm_id):
-        return self._data[arm_id].pull_once()
+    @classmethod
+    def build(cls, data_set, means, variances=None,
+              single_block_size=1000000, multi_block_size=10000):
+        data_dir = cls.data_dir_str(data_set)
+        cls.delete_data_set(data_set)
+        print 'Create directory (%s)' % data_dir
+        os.mkdir(data_dir)
+        print 'Start building data set (%s)...' % data_set
+        _Config.init(data_dir, means, variances,
+                     single_block_size, multi_block_size)
+        print 'Success'
+        return None
+
+    @classmethod
+    def factory(cls, data_dir):
+        return (PreBuildData(data_dir))
+
+    @classmethod
+    def data_dir_str(cls, data_set):
+        return (ds.path_str(cls.DATA_DIR, data_set))
+
+    @classmethod
+    def delete_data_set(cls, data_set):
+        data_dir = cls.data_dir_str(data_set)
+        if (os.path.exists(data_dir)):
+            print 'Delete directory (%s)' % data_dir
+            shutil.rmtree(data_dir)
+        return None
+
+
+class SparseDataSet(PreBuildData):
+    """Documentation for SparseDataSet
+
+    """
+    NAME_HEAD = 'spa'
+
+    def __init__(self, size, alpha, is_rebuild=False):
+        super(SparseDataSet, self).__init__(
+            SparseDataSet.data_set_str(size, alpha))
+        self._size = size
+        self._alpha = alpha
+        if is_rebuild or not (os.path.exists(self.data_dir)):
+            SparseDataSet.build(self._size, self._alpha)
+        return None
+
+    @classmethod
+    def data_set_str(cls, size, alpha):
+        return ('{0.NAME_HEAD}{2:.1f}_{1:d}'.format(cls, size, alpha))
+
+    @classmethod
+    def build(cls, size, alpha,
+              single_block_size=1000000, multi_block_size=10000):
+        means = (Means.one_sparse(size)
+                 if ds.is_float_equal(alpha, 0.0)
+                 else Means.alpha_sparse(size, alpha))
+        PreBuildData.build(cls.data_set_str(size, alpha), means,
+                           single_block_size=single_block_size,
+                           multi_block_size=multi_block_size)
+        return None
+
+
+class RandomDataSet(PreBuildData):
+    """Documentation for RandomDataSet
+
+    """
+    NAME_HEAD = 'rnd'
+
+    def __init__(self, size, gap=0.1, core_size=1, is_rebuild=False):
+        super(RandomDataSet, self).__init__(
+            RandomDataSet.data_set_str(size, gap, core_size))
+        self._size = size
+        self._gap = gap
+        self._core_size = core_size
+        if is_rebuild or not (os.path.exists(self.data_dir)):
+            RandomDataSet.build(self._size, self._gap, self._core_size)
+        return None
+
+    @classmethod
+    def data_set_str(cls, size, gap, core_size):
+        return ('{0.NAME_HEAD}{2:.1f}_{3:d}_{1:d}'.format(
+            cls, size, gap, core_size))
+
+    @classmethod
+    def build(cls, size, gap=0.1, core_size=1,
+              single_block_size=1000000, multi_block_size=10000):
+        PreBuildData.build(
+            cls.data_set_str(size, gap, core_size),
+            Means.random(size, gap, core_size),
+            single_block_size=single_block_size,
+            multi_block_size=multi_block_size)
+        return None
 
 
 def test():
-    a = _BlockHead('.')
-    a.init(100)
+    print 'DATA_SET: test()'
+    # pbd = SparseDataSet(5, 0.3)
+    pbd = RandomDataSet(5, is_rebuild=True)
+    pbd.load()
+    pbd.pull(1, 100)
+    pbd.save()
+    print pbd
+    print 'DATA_SET: test() end'
     return None

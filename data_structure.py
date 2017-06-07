@@ -1,5 +1,6 @@
 import rbtree
 import numpy as np
+import os
 
 FLOAT_TYPE = np.float
 PRECISION = np.finfo(float).resolution
@@ -7,6 +8,10 @@ PRECISION = np.finfo(float).resolution
 
 def is_float_equal(a, b):
     return (np.isclose(a, b, PRECISION))
+
+
+def power(base, exp):
+    return (np.power(base, exp))
 
 
 def malloc_float(size):
@@ -25,6 +30,10 @@ def malloc_int_ones(size):
     return np.ones(size, np.int)
 
 
+def nrange(size):
+    return np.arange(0, size, 1, FLOAT_TYPE)
+
+
 def set_random_seed(seed):
     np.random.seed(seed)
     return None
@@ -34,12 +43,20 @@ def normal(mean, variance, size):
     return np.random.normal(mean, variance, size)
 
 
+def uniform(min_val, max_val, size):
+    return np.random.uniform(min_val, max_val, size)
+
+
 def random_int(max_val):
     return np.random.randint(max_val)
 
 
 def path_str(path_1, path_2):
-    return (path_1 + '/' + path_2)
+    return (os.path.join(path_1, path_2))
+
+
+def is_path_exist(path):
+    return (os.path.exists(path))
 
 
 def compute_H1(means):

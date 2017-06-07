@@ -5,36 +5,38 @@ import sys
 import numpy as np
 
 
-def test(a=1, b=2, c=3):
-    print a, b, c
-    return a, b, c
+def func1(a, b):
+    print 'func1'
+    return None
+
+
+def func2(a, b):
+    print 'func2'
+    return None
+
+
+def test(fuc):
+    def test_c(a, b):
+        print type(fuc)
+        return fuc(a, b)
+    return test_c
 
 
 print 'Experiment start...'
 # experiment.test(sys.argv)
-import data_set
-data_set.test()
+# import data_set; data_set.test(); sys.exit()
 
 
-a = [('sdfsf', test, 1), 20, 'sadfaaf']
-b = np.ones(5, np.float)
-c = np.zeros(5, np.int)
-# np.savez('test.npz', a=a, b=b, c=c)
-ll = [a, b, c]
-print type(ll)
-np.save('test.npy', ll)
-ll = np.load('test.npy')
-print type(ll)
-print ll.shape
-print type(ll[0])
-print ll[0]
-print type(ll[0][1])
+def a():
+    print 'AAAA'
+    return None
 
-# tt = tuple(f)
-# print type(f)
-# print type(f[0][0]), f[0].size
-# print type(f[1][0]), f[1].size
-# print type(f[2][0]), f[2].size
+
+def b():
+    print 'BBBB'
+    return None
+
+c = a() if False else b()
 
 
 class A(object):
@@ -42,7 +44,7 @@ class A(object):
     ABC = 200
 
     def __init__(self, arg='AAA'):
-        # print self.ABC
+        print 'CREATE A'
         return
 
     def __del__(self):
@@ -59,25 +61,18 @@ class A(object):
             raise AttributeError(name)
         return None
 
+    @classmethod
+    def test_class(cls):
+        print cls
+        print cls.ABC
+        return None
+
     @staticmethod
     def testcm(a):
         print a
 
     def a(self):
         print self.ABC
-        return None
-
-    def bb():
-        print 'A bb'
-        return None
-
-    def aa(self):
-        print 'aa'
-        self.bb()
-        return
-
-    def aaprint(self):
-        print self.abc
         return None
 
 
@@ -90,18 +85,16 @@ class B(A):
         print self.ABC
         return None
 
-    def bb(self):
-        print 'B bb'
+    @classmethod
+    def test_classa(cls):
+        print cls
         return None
 
 
-class C(object):
-    def __init__(self):
-        return
-
-
-CC = A
-a = CC('adfadfafdadfa')
+A.ABC = 20202020
+a = A()
+a.test_class()
+print a.__class__.__name__
 
 
 print 'Over.'
