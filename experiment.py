@@ -1,18 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import best_arm_identification as bai
-import data_structure as ds
 import time
 import data_set as dset
+import utility_tool as ut
 
 
 def main():
     """Main"""
     pass
-
-
-if __name__ == '__main__':
-    main()
 
 
 v = 0.1
@@ -227,3 +223,7 @@ def test(argv):
     time_stop = time.clock()
     print 'Running time: %f' % (time_stop - time_start)
     return None
+
+
+if __name__ == '__main__':
+    main()

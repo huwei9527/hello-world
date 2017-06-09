@@ -6,37 +6,31 @@ import numpy as np
 
 
 def func1(a, b):
-    print 'func1'
+    print('func1')
     return None
 
 
 def func2(a, b):
-    print 'func2'
+    print('func2')
     return None
 
 
 def test(fuc):
     def test_c(a, b):
-        print type(fuc)
+        print(type(fuc))
         return fuc(a, b)
     return test_c
 
 
-print 'Experiment start...'
+print('Experiment start...')
 # experiment.test(sys.argv)
 # import data_set; data_set.test(); sys.exit()
+a = {1: 'a', 2: 'b', 3: 'c'}
 
-
-def a():
-    print 'AAAA'
-    return None
-
-
-def b():
-    print 'BBBB'
-    return None
-
-c = a() if False else b()
+print(a.keys())
+for el in a.items():
+    print(el)
+# print a.viewitems()
 
 
 class A(object):
@@ -44,7 +38,6 @@ class A(object):
     ABC = 200
 
     def __init__(self, arg='AAA'):
-        print 'CREATE A'
         return
 
     def __del__(self):
@@ -55,7 +48,6 @@ class A(object):
 
     def __getattr__(self, name):
         if (name == 'conf'):
-            print 'CONF'
             return 'CONF'
         else:
             raise AttributeError(name)
@@ -63,16 +55,13 @@ class A(object):
 
     @classmethod
     def test_class(cls):
-        print cls
-        print cls.ABC
         return None
 
     @staticmethod
     def testcm(a):
-        print a
+        return None
 
     def a(self):
-        print self.ABC
         return None
 
 
@@ -82,22 +71,19 @@ class B(A):
 
     def __init__(self, arg='BBB'):
         super(B, self).__init__(arg)
-        print self.ABC
         return None
 
     @classmethod
     def test_classa(cls):
-        print cls
         return None
 
 
 A.ABC = 20202020
 a = A()
 a.test_class()
-print a.__class__.__name__
 
 
-print 'Over.'
+print('Over.')
 #  print bai.data
 #  bai.data.save()
 #  bai.data.load()
